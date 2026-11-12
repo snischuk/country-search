@@ -1,7 +1,9 @@
 import js from '@eslint/js';
 import stylistic from '@stylistic/eslint-plugin';
 import prettier from 'eslint-config-prettier/flat';
+import functionName from 'eslint-plugin-function-name';
 import importX from 'eslint-plugin-import-x';
+import unicorn from 'eslint-plugin-unicorn';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
@@ -9,9 +11,10 @@ export default defineConfig([
   globalIgnores(['dist/**', 'dist-ssr/**', 'coverage/**']),
   {
     files: ['**/*.{js,ts}'],
-    plugins: { 'import-x': importX },
+    plugins: { 'import-x': importX, 'function-name': functionName },
     rules: {
       'import-x/no-duplicates': 'error',
+      'function-name/starts-with-verb': 'error',
     },
   },
   {
@@ -25,6 +28,14 @@ export default defineConfig([
         { blankLine: 'any', prev: ['const', 'let'], next: ['const', 'let'] },
         { blankLine: 'always', prev: 'block-like', next: '*' },
       ],
+    },
+  },
+  {
+    files: ['**/*.{js,ts}'],
+    plugins: { unicorn },
+    rules: {
+      'unicorn/filename-case': 'error',
+      'unicorn/name-replacements': 'error',
     },
   },
   {
@@ -46,6 +57,29 @@ export default defineConfig([
         { assertionStyle: 'as' },
       ],
       '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/naming-convention': [
+        'error',
+        {
+          selector: 'default',
+          format: ['camelCase'],
+          leadingUnderscore: 'allow',
+          trailingUnderscore: 'allow',
+        },
+        {
+          selector: 'import',
+          format: ['camelCase', 'PascalCase'],
+        },
+        {
+          selector: 'variable',
+          format: ['camelCase', 'UPPER_CASE'],
+          leadingUnderscore: 'allow',
+          trailingUnderscore: 'allow',
+        },
+        {
+          selector: 'typeLike',
+          format: ['PascalCase'],
+        },
+      ],
       '@typescript-eslint/explicit-function-return-type': [
         'error',
         {
