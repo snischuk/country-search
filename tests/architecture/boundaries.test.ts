@@ -75,14 +75,17 @@ beforeAll(async (): Promise<void> => {
     `${servicePath}/domain/value.ts`,
     'export const value: number = 1;',
   );
+
   writeFixture(
     `${servicePath}/infrastructure/storage.ts`,
     'export const value: number = 1;',
   );
+
   writeFixture(
     `${servicePath}/index.ts`,
     "export { value } from './infrastructure/storage';",
   );
+
   cases.forEach((testCase: ArchitectureCase): void => {
     writeFixture(testCase.path, testCase.source);
   });

@@ -36,6 +36,27 @@ export default defineConfig([
         { blankLine: 'always', prev: ['const', 'let'], next: '*' },
         { blankLine: 'any', prev: ['const', 'let'], next: ['const', 'let'] },
         { blankLine: 'always', prev: 'block-like', next: '*' },
+        { blankLine: 'always', prev: 'multiline-expression', next: '*' },
+        {
+          blankLine: 'always',
+          prev: [
+            'interface',
+            'type',
+            {
+              selector:
+                'ExportNamedDeclaration[declaration.type="TSInterfaceDeclaration"]',
+            },
+            {
+              selector:
+                'ExportNamedDeclaration[declaration.type="TSTypeAliasDeclaration"]',
+            },
+            {
+              selector:
+                'ExportDefaultDeclaration[declaration.type="TSInterfaceDeclaration"]',
+            },
+          ],
+          next: '*',
+        },
       ],
     },
   },
@@ -50,6 +71,14 @@ export default defineConfig([
   {
     files: ['src/**/*.ts'],
     rules: {
+      '@typescript-eslint/no-magic-numbers': [
+        'error',
+        {
+          enforceConst: true,
+          ignore: [-1, 0, 1],
+          ignoreArrayIndexes: true,
+        },
+      ],
       'no-restricted-properties': [
         'error',
         {
