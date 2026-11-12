@@ -1,3 +1,15 @@
+import type { SearchErrorType } from '../domain/search-state.type';
+
+export interface ClassifiedSearchError {
+  readonly errorType: SearchErrorType;
+  readonly message: string;
+  readonly statusCode: number | null;
+}
+
+export function getSearchError(error: unknown): ClassifiedSearchError | null {
+  throw new Error('Not implemented', { cause: error });
+}
+
 export class HttpError extends Error {
   public readonly statusCode: number;
 
