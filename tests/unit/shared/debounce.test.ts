@@ -13,63 +13,69 @@ afterEach((): void => {
 
 describe('debounce', (): void => {
   it('waits for the whole delay and preserves the latest arguments', (): void => {
-    const calls: string[] = [];
-    const delayed: Debounced<[string]> = debounce((value: string): void => {
-      calls.push(value);
-    }, 300);
+    const receivedQueries: string[] = [];
+    const debouncedCallback: Debounced<[string]> = debounce(
+      (query: string): void => {
+        receivedQueries.push(query);
+      },
+      300,
+    );
 
-    delayed('Japan');
+    debouncedCallback('Japan');
     vi.advanceTimersByTime(299);
-    expect(calls).toEqual([]);
+    expect(receivedQueries).toEqual([]);
     vi.advanceTimersByTime(1);
-    expect(calls).toEqual(['Japan']);
+    expect(receivedQueries).toEqual(['Japan']);
   });
 
   it('restarts the delay after another call', (): void => {
-    const calls: string[] = [];
-    const delayed: Debounced<[string]> = debounce((value: string): void => {
-      calls.push(value);
-    }, 300);
+    const receivedQueries: string[] = [];
+    const debouncedCallback: Debounced<[string]> = debounce(
+      (query: string): void => {
+        receivedQueries.push(query);
+      },
+      300,
+    );
 
-    delayed('sp');
+    debouncedCallback('sp');
     vi.advanceTimersByTime(200);
-    delayed('spain');
+    debouncedCallback('spain');
     vi.advanceTimersByTime(299);
-    expect(calls).toEqual([]);
+    expect(receivedQueries).toEqual([]);
     vi.advanceTimersByTime(1);
-    expect(calls).toEqual(['spain']);
+    expect(receivedQueries).toEqual(['spain']);
   });
 
   it('cancels pending work and can schedule again afterwards', (): void => {
-    let calls: number = 0;
-    const delayed: Debounced<[]> = debounce((): void => {
-      calls += 1;
+    let callbackCallCount: number = 0;
+    const debouncedCallback: Debounced<[]> = debounce((): void => {
+      callbackCallCount += 1;
     }, 300);
 
-    delayed();
-    delayed.cancel();
-    delayed.cancel();
+    debouncedCallback();
+    debouncedCallback.cancel();
+    debouncedCallback.cancel();
     vi.advanceTimersByTime(1000);
-    expect(calls).toBe(0);
+    expect(callbackCallCount).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
-    delayed();
+    debouncedCallback();
     vi.advanceTimersByTime(300);
-    expect(calls).toBe(1);
+    expect(callbackCallCount).toBe(1);
   });
 
   it('keeps separate instances independent', (): void => {
-    const calls: string[] = [];
-    const first: Debounced<[]> = debounce((): void => {
-      calls.push('first');
+    const invokedCallbacks: string[] = [];
+    const firstDebouncedCallback: Debounced<[]> = debounce((): void => {
+      invokedCallbacks.push('first');
     }, 300);
-    const second: Debounced<[]> = debounce((): void => {
-      calls.push('second');
+    const secondDebouncedCallback: Debounced<[]> = debounce((): void => {
+      invokedCallbacks.push('second');
     }, 300);
 
-    first();
-    second();
-    first.cancel();
+    firstDebouncedCallback();
+    secondDebouncedCallback();
+    firstDebouncedCallback.cancel();
     vi.advanceTimersByTime(300);
-    expect(calls).toEqual(['second']);
+    expect(invokedCallbacks).toEqual(['second']);
   });
 });
