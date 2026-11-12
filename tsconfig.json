@@ -14,14 +14,22 @@
     "moduleDetection": "force",
     "noEmit": true,
 
-    /* Linting */
+    /* Type checking */
     "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+
+    /* Code quality */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+
+    /* Compatibility */
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src"]
 }
