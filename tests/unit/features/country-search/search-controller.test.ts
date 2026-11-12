@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { createSearchController } from '@/features/country-search/application/search-controller';
+import {
+  HttpError,
+  ValidationError,
+} from '@/features/country-search/application/search-errors';
 import type {
   ScheduledTask,
   SchedulerFactory,
@@ -10,8 +14,14 @@ import type {
   SearchView,
 } from '@/features/country-search/application/search.port';
 import type { Country } from '@/features/country-search/domain/country.type';
-import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
-import type { SearchState } from '@/features/country-search/domain/search-state.type';
+import {
+  SEARCH_ERROR_TYPES,
+  SEARCH_STATUS,
+} from '@/features/country-search/domain/search-state.type';
+import type {
+  SearchErrorType,
+  SearchState,
+} from '@/features/country-search/domain/search-state.type';
 
 interface PendingSearch {
   readonly query: string;
@@ -291,4 +301,209 @@ describe('createSearchController', (): void => {
     expect(scheduledTasks).toHaveLength(0);
     expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
   });
+});
+
+describe('search controller errors and retry', (): void => {
+  it.each([
+    {
+      error: { name: 'TimeoutError' },
+      errorType: SEARCH_ERROR_TYPES.timeout,
+      statusCode: null,
+    },
+    {
+      error: new HttpError(503),
+      errorType: SEARCH_ERROR_TYPES.http,
+      statusCode: 503,
+    },
+    {
+      error: new ValidationError(),
+      errorType: SEARCH_ERROR_TYPES.invalidResponse,
+      statusCode: null,
+    },
+  ])(
+    'renders classified $errorType failures',
+    async ({
+      error,
+      errorType,
+      statusCode,
+    }: {
+      error: unknown;
+      errorType: SearchErrorType;
+      statusCode: number | null;
+    }): Promise<void> => {
+      const {
+        controller,
+        scheduledTasks,
+        pendingSearches,
+        renderedStates,
+      }: SearchHarness = createSearchHarness();
+
+      controller.updateSearchQuery('sp');
+      scheduledTasks[0]?.invoke();
+      pendingSearches[0]?.reject(error);
+
+      await resolveMicrotasks();
+
+      expect(renderedStates.at(-1)).toMatchObject({
+        status: SEARCH_STATUS.error,
+        query: 'sp',
+        errorType,
+        statusCode,
+      });
+    },
+  );
+
+  it('keeps an intentional AbortError silent', async (): Promise<void> => {
+    const {
+      controller,
+      scheduledTasks,
+      pendingSearches,
+      renderedStates,
+    }: SearchHarness = createSearchHarness();
+
+    controller.updateSearchQuery('sp');
+    scheduledTasks[0]?.invoke();
+    pendingSearches[0]?.reject({ name: 'AbortError' });
+
+    await resolveMicrotasks();
+
+    expect(
+      renderedStates.some(
+        (state: SearchState): boolean => state.status === SEARCH_STATUS.error,
+      ),
+    ).toBe(false);
+  });
+
+  it('retries the latest failed query immediately after the input changes', async (): Promise<void> => {
+    const {
+      controller,
+      scheduledTasks,
+      pendingSearches,
+      renderedStates,
+    }: SearchHarness = createSearchHarness();
+
+    controller.updateSearchQuery('sp');
+    scheduledTasks[0]?.invoke();
+    pendingSearches[0]?.reject(new TypeError('Failed to fetch'));
+
+    await resolveMicrotasks();
+
+    expect(renderedStates.at(-1)?.status).toBe(SEARCH_STATUS.error);
+
+    controller.updateSearchQuery('spain');
+
+    expect(renderedStates.at(-1)).toEqual({
+      status: SEARCH_STATUS.waiting,
+      query: 'spain',
+    });
+
+    scheduledTasks[1]?.invoke();
+    pendingSearches[1]?.reject(new TypeError('Failed to fetch'));
+
+    await resolveMicrotasks();
+
+    expect(renderedStates.at(-1)).toMatchObject({
+      status: SEARCH_STATUS.error,
+      query: 'spain',
+    });
+
+    controller.retrySearch();
+
+    expect(pendingSearches).toHaveLength(3);
+    expect(pendingSearches[2]?.query).toBe('spain');
+    expect(pendingSearches[1]?.cancellationSignal.isCancelled).toBe(true);
+    expect(scheduledTasks).toHaveLength(2);
+    expect(renderedStates.at(-1)).toEqual({
+      status: SEARCH_STATUS.loading,
+      query: 'spain',
+    });
+
+    const spain: Country = createCountry('Spain');
+
+    pendingSearches[2]?.resolve([spain]);
+
+    await resolveMicrotasks();
+
+    expect(renderedStates.at(-1)).toEqual({
+      status: SEARCH_STATUS.results,
+      query: 'spain',
+      countries: [spain],
+    });
+  });
+
+  it('cancels pending debounce and the active consumer when retrying', (): void => {
+    const { controller, scheduledTasks, pendingSearches }: SearchHarness =
+      createSearchHarness();
+
+    controller.updateSearchQuery('sp');
+    scheduledTasks[0]?.invoke();
+    controller.updateSearchQuery('spain');
+    controller.retrySearch();
+
+    expect(scheduledTasks[1]?.isCancelled()).toBe(true);
+    expect(pendingSearches[0]?.cancellationSignal.isCancelled).toBe(true);
+    expect(pendingSearches[1]?.query).toBe('spain');
+
+    scheduledTasks[1]?.invoke();
+
+    expect(pendingSearches).toHaveLength(2);
+
+    controller.retrySearch();
+
+    expect(pendingSearches[1]?.cancellationSignal.isCancelled).toBe(true);
+    expect(pendingSearches[2]?.query).toBe('spain');
+  });
+
+  it('clears an error on empty input and ignores an empty retry', async (): Promise<void> => {
+    const {
+      controller,
+      scheduledTasks,
+      pendingSearches,
+      renderedStates,
+    }: SearchHarness = createSearchHarness();
+
+    controller.updateSearchQuery('sp');
+    scheduledTasks[0]?.invoke();
+    pendingSearches[0]?.reject(new TypeError('Failed to fetch'));
+
+    await resolveMicrotasks();
+
+    controller.updateSearchQuery('   ');
+    controller.retrySearch();
+
+    expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
+    expect(pendingSearches).toHaveLength(1);
+    expect(scheduledTasks).toHaveLength(1);
+  });
+
+  it.each([false, true])(
+    'ignores stale failure when latest search started: %s',
+    async (shouldStartLatest: boolean): Promise<void> => {
+      const {
+        controller,
+        scheduledTasks,
+        pendingSearches,
+        renderedStates,
+      }: SearchHarness = createSearchHarness();
+
+      controller.updateSearchQuery('sp');
+      scheduledTasks[0]?.invoke();
+      controller.updateSearchQuery('spain');
+
+      if (shouldStartLatest) {
+        scheduledTasks[1]?.invoke();
+      }
+
+      pendingSearches[0]?.reject(new HttpError(503));
+
+      await resolveMicrotasks();
+
+      expect(renderedStates.at(-1)).toEqual({
+        status: shouldStartLatest
+          ? SEARCH_STATUS.loading
+          : SEARCH_STATUS.waiting,
+        query: 'spain',
+      });
+    },
+  );
 });
