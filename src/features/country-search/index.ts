@@ -8,6 +8,8 @@ export type {
 export type {
   SearchPort,
   SearchView,
+  SearchCancellationSignal,
+  SearchCancellationSource,
   ScheduledTask,
   SchedulerFactory,
   HistoryRecorder,

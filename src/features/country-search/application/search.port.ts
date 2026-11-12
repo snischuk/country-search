@@ -2,7 +2,20 @@ import type { Country } from '../domain/country.type';
 import type { SearchState } from '../domain/search-state.type';
 
 export interface SearchPort {
-  search(query: string, signal: AbortSignal): Promise<readonly Country[]>;
+  search(
+    query: string,
+    cancellationSignal: SearchCancellationSignal,
+  ): Promise<readonly Country[]>;
+}
+
+export interface SearchCancellationSignal {
+  readonly isCancelled: boolean;
+  onCancel(callback: () => void): () => void;
+}
+
+export interface SearchCancellationSource {
+  readonly signal: SearchCancellationSignal;
+  cancel(): void;
 }
 
 export interface SearchView {

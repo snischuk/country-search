@@ -102,6 +102,45 @@ export default defineConfig([
     },
   },
   {
+    files: ['src/**/application/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'AbortController',
+          message: 'Use an application-owned cancellation contract.',
+        },
+        {
+          name: 'AbortSignal',
+          message: 'Use an application-owned cancellation contract.',
+        },
+        {
+          name: 'DOMException',
+          message: 'Translate platform errors in Infrastructure.',
+        },
+        { name: 'document', message: 'DOM access belongs in Presentation.' },
+        { name: 'window', message: 'Browser globals belong in outer layers.' },
+        { name: 'fetch', message: 'Network access belongs in Infrastructure.' },
+        {
+          name: 'localStorage',
+          message: 'Storage access belongs in Infrastructure.',
+        },
+        {
+          name: 'sessionStorage',
+          message: 'Storage access belongs in Infrastructure.',
+        },
+        {
+          name: 'setTimeout',
+          message: 'Inject scheduling through an application port.',
+        },
+        {
+          name: 'clearTimeout',
+          message: 'Inject scheduling through an application port.',
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
   },

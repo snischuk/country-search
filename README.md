@@ -2,9 +2,10 @@
 
 ## Project structure
 
-The project is organized by feature. The architecture example has been removed;
-the current entry point displays Hello, world!. The structure below describes
-the intended organization as real functionality is developed with tests.
+The project is organized by feature. `src/main.ts` still displays Hello, world!;
+country-search domain, application, and infrastructure modules are
+being built and tested, but the composition root is not connected yet. The tree
+below shows the intended structure as each real responsibility is implemented.
 
 ```text
 src/
@@ -22,14 +23,12 @@ src/
 │       ├── infrastructure/
 │       ├── presentation/
 │       └── index.ts             # its public entry point
-├── services/
+└── services/
 │   └── search-history/          # shared history capability
 │       ├── domain/              # five unique recent queries
 │       ├── application/         # operations and storage contract
 │       ├── infrastructure/      # localStorage and JSON adapter
 │       └── index.ts             # service public API
-└── shared/
-    └── utils/format-number.ts   # generic number formatter
 ```
 
 Keep the four responsibilities inside the feature that owns them. Domain rules
@@ -37,15 +36,18 @@ stay independent of the UI and network. Application coordinates the use case;
 infrastructure talks to external systems; presentation handles the UI. The
 `app` folder connects the pieces. A feature's `index.ts` is its public API, so
 other features do not reach into its internal folders. `services` is for a
-business capability used by multiple features; the API client stays inside its
-feature's infrastructure. `shared` is for generic helpers such as number
-formatting. Add layers only when they have a real responsibility.
+cohesive business capability used by multiple features; the API client stays
+inside its feature's infrastructure. There is currently no `shared` module:
+code with one consumer stays with its owner. Add shared code only when
+independent modules genuinely reuse it, and place it in the layer matching its
+responsibility. Do not create a catch-all `utils` directory.
 
-The same responsibility boundaries apply inside **features and services**.
+The same responsibility boundaries apply inside **features, services, and any
+future shared module**.
 `services` indicates reuse across features; it does not combine business rules
-with storage or UI. `shared` contains generic technical code and no product
-business rules. Technical modules in `shared` also keep pure logic separate from
-side effects when both are present.
+with storage or UI. A shared module, if introduced, follows the same layer
+boundaries: pure logic, runtime integrations, and UI behavior belong to the
+layers that own those responsibilities.
 
 For history, Domain handles trimming, exact case-sensitive duplicates, order,
 and the ten-query limit. Application accepts a `SearchHistoryStorage` contract, coordinates
@@ -56,7 +58,7 @@ or UI. An asynchronous IndexedDB or API adapter also requires an explicitly
 asynchronous port and lifecycle. Storage errors currently
 leave history available in memory for the current session.
 
-ESLint checks layer direction inside features, services, and structured shared
-modules, plus public entry points for features and services. It cannot decide
+ESLint checks layer direction inside features, services, and structured modules,
+plus public entry points for features and services. It cannot decide
 whether a function contains a business rule; that responsibility still requires
 code review. Do not bypass a layer boundary by importing its module's `index.ts`.

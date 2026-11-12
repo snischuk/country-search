@@ -5,6 +5,7 @@ import type { SearchState } from '../domain/search-state.type';
 import type {
   ScheduledTask,
   SchedulerFactory,
+  SearchCancellationSource,
   SearchController,
   SearchPort,
   SearchView,
@@ -22,7 +23,7 @@ export function createSearchController(
   let currentState: SearchState = { status: SEARCH_STATUS.idle };
   let currentCountries: readonly Country[] = [];
   let selectedCountry: Country | null = null;
-  let currentAbortController: AbortController | null = null;
+  let currentCancellationSource: SearchCancellationSource | null = null;
   let scheduledTask: ScheduledTask | null = null;
 
   function renderState(state: SearchState): void {
@@ -35,23 +36,23 @@ export function createSearchController(
     scheduledTask = null;
   }
 
-  function abortCurrentSearch(): void {
-    currentAbortController?.abort();
-    currentAbortController = null;
+  function cancelCurrentSearch(): void {
+    currentCancellationSource?.cancel();
+    currentCancellationSource = null;
   }
 
   function destroySearchController(): void {
     cancelScheduledSearch();
-    abortCurrentSearch();
+    cancelCurrentSearch();
   }
 
   async function executeCountrySearch(
     query: string,
-    requestController: AbortController,
+    cancellationSource: SearchCancellationSource,
   ): Promise<void> {
     if (
-      currentAbortController !== requestController ||
-      requestController.signal.aborted
+      currentCancellationSource !== cancellationSource ||
+      cancellationSource.signal.isCancelled
     ) {
       return;
     }
@@ -62,12 +63,12 @@ export function createSearchController(
     try {
       const countries: readonly Country[] = await searchPort.search(
         query,
-        requestController.signal,
+        cancellationSource.signal,
       );
 
       if (
-        currentAbortController !== requestController ||
-        requestController.signal.aborted
+        currentCancellationSource !== cancellationSource ||
+        cancellationSource.signal.isCancelled
       ) {
         return;
       }
@@ -83,8 +84,8 @@ export function createSearchController(
       renderState({ status: SEARCH_STATUS.results, query, countries });
     } catch {
       if (
-        currentAbortController !== requestController ||
-        requestController.signal.aborted
+        currentCancellationSource !== cancellationSource ||
+        cancellationSource.signal.isCancelled
       ) {
         return;
       }
@@ -101,7 +102,7 @@ export function createSearchController(
 
   function applyQuery(rawQuery: string, shouldRunImmediately: boolean): void {
     cancelScheduledSearch();
-    abortCurrentSearch();
+    cancelCurrentSearch();
 
     currentQuery = rawQuery.trim();
     currentCountries = [];
@@ -113,12 +114,13 @@ export function createSearchController(
       return;
     }
 
-    const requestController: AbortController = new AbortController();
+    const cancellationSource: SearchCancellationSource =
+      createSearchCancellationSource();
 
-    currentAbortController = requestController;
+    currentCancellationSource = cancellationSource;
 
     if (shouldRunImmediately) {
-      void executeCountrySearch(currentQuery, requestController);
+      void executeCountrySearch(currentQuery, cancellationSource);
 
       return;
     }
@@ -126,7 +128,7 @@ export function createSearchController(
     renderState({ status: SEARCH_STATUS.waiting, query: currentQuery });
     scheduledTask = schedulerFactory((): void => {
       scheduledTask = null;
-      void executeCountrySearch(currentQuery, requestController);
+      void executeCountrySearch(currentQuery, cancellationSource);
     }, SEARCH_DEBOUNCE_DELAY_MS);
   }
 
@@ -163,4 +165,46 @@ export function createSearchController(
   searchView.render(currentState, selectedCountry);
 
   return searchController;
+}
+
+function createSearchCancellationSource(): SearchCancellationSource {
+  let isCancelled: boolean = false;
+  const cancellationCallbacks: Set<() => void> = new Set();
+
+  const signal: SearchCancellationSource['signal'] = {
+    get isCancelled(): boolean {
+      return isCancelled;
+    },
+
+    onCancel(callback: () => void): () => void {
+      if (isCancelled) {
+        callback();
+
+        return (): void => {};
+      }
+
+      cancellationCallbacks.add(callback);
+
+      return (): void => {
+        cancellationCallbacks.delete(callback);
+      };
+    },
+  };
+
+  return {
+    signal,
+    cancel(): void {
+      if (isCancelled) {
+        return;
+      }
+
+      isCancelled = true;
+
+      cancellationCallbacks.forEach((callback: () => void): void => {
+        callback();
+      });
+
+      cancellationCallbacks.clear();
+    },
+  };
 }

@@ -4,6 +4,7 @@ import { createSearchController } from '@/features/country-search/application/se
 import type {
   ScheduledTask,
   SchedulerFactory,
+  SearchCancellationSignal,
   SearchController,
   SearchPort,
   SearchView,
@@ -14,7 +15,7 @@ import type { SearchState } from '@/features/country-search/domain/search-state.
 
 interface PendingSearch {
   readonly query: string;
-  readonly signal: AbortSignal;
+  readonly cancellationSignal: SearchCancellationSignal;
   readonly resolve: (countries: readonly Country[]) => void;
   readonly reject: (error: unknown) => void;
 }
@@ -55,13 +56,16 @@ function createSearchHarness(): SearchHarness {
   const scheduledDelays: number[] = [];
 
   const searchPort: SearchPort = {
-    search(query: string, signal: AbortSignal): Promise<readonly Country[]> {
+    search(
+      query: string,
+      cancellationSignal: SearchCancellationSignal,
+    ): Promise<readonly Country[]> {
       return new Promise<readonly Country[]>(
         (
           resolve: (countries: readonly Country[]) => void,
           reject: (error: unknown) => void,
         ): void => {
-          pendingSearches.push({ query, signal, resolve, reject });
+          pendingSearches.push({ query, cancellationSignal, resolve, reject });
         },
       );
     },
@@ -154,7 +158,7 @@ describe('createSearchController', (): void => {
     expect(pendingSearches[0]?.query).toBe('Japan');
   });
 
-  it('aborts the active request immediately when a new query arrives', (): void => {
+  it('cancels the active request immediately when a new query arrives', (): void => {
     const {
       controller,
       scheduledTasks,
@@ -164,18 +168,19 @@ describe('createSearchController', (): void => {
 
     controller.updateSearchQuery('Japan');
     scheduledTasks[0]?.invoke();
-    const previousSignal: AbortSignal | undefined = pendingSearches[0]?.signal;
+    const previousSignal: SearchCancellationSignal | undefined =
+      pendingSearches[0]?.cancellationSignal;
 
     controller.updateSearchQuery('Canada');
 
-    expect(previousSignal?.aborted).toBe(true);
+    expect(previousSignal?.isCancelled).toBe(true);
     expect(renderedStates.at(-1)).toEqual({
       status: SEARCH_STATUS.waiting,
       query: 'Canada',
     });
   });
 
-  it('cancels pending work, aborts active search and returns to idle on empty input', (): void => {
+  it('cancels pending work and the active search on empty input', (): void => {
     const {
       controller,
       scheduledTasks,
@@ -185,11 +190,12 @@ describe('createSearchController', (): void => {
 
     controller.updateSearchQuery('Japan');
     scheduledTasks[0]?.invoke();
-    const activeSignal: AbortSignal | undefined = pendingSearches[0]?.signal;
+    const activeSignal: SearchCancellationSignal | undefined =
+      pendingSearches[0]?.cancellationSignal;
 
     controller.updateSearchQuery('');
 
-    expect(activeSignal?.aborted).toBe(true);
+    expect(activeSignal?.isCancelled).toBe(true);
     expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
     expect(scheduledTasks[1]).toBeUndefined();
   });

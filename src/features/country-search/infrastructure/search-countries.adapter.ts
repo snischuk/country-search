@@ -1,8 +1,8 @@
-import { createAbortSignalWithTimeout } from '@/shared/utils/abort-signals';
-
 import { HttpError, ValidationError } from '../application/search-errors';
+import type { SearchCancellationSignal } from '../application/search.port';
 import type { Country } from '../domain/country.type';
 
+import { createAbortSignalWithTimeout } from './abort-signal.adapter';
 import { mapCountryResponse } from './map-country-response';
 
 const COUNTRIES_API_URL: string = 'https://countries.dev/name';
@@ -12,30 +12,42 @@ const REQUEST_TIMEOUT_MS: number = 10_000;
 
 export function searchCountries(
   query: string,
-  signal: AbortSignal,
+  cancellationSignal: SearchCancellationSignal,
 ): Promise<readonly Country[]> {
   const normalizedQuery: string = query.trim();
 
-  if (signal.aborted) {
-    const abortReason: unknown = signal.reason;
-
-    return Promise.reject(
-      abortReason instanceof Error
-        ? abortReason
-        : new DOMException('The request was cancelled.', 'AbortError'),
-    );
+  if (cancellationSignal.isCancelled) {
+    return Promise.reject(createAbortError());
   }
 
   if (normalizedQuery.length === 0) {
     return Promise.resolve([]);
   }
 
-  return fetchCountries(normalizedQuery, signal);
+  const callerController: AbortController = new AbortController();
+  const removeCancellationCallback: () => void = cancellationSignal.onCancel(
+    (): void => {
+      callerController.abort();
+    },
+  );
+
+  if (cancellationSignal.isCancelled) {
+    removeCancellationCallback();
+
+    return Promise.reject(createAbortError());
+  }
+
+  return fetchCountries(
+    normalizedQuery,
+    callerController.signal,
+    removeCancellationCallback,
+  );
 }
 
 async function fetchCountries(
   normalizedQuery: string,
   callerSignal: AbortSignal,
+  removeCancellationCallback: () => void,
 ): Promise<readonly Country[]> {
   const requestUrl: string = `${COUNTRIES_API_URL}/${encodeURIComponent(normalizedQuery)}`;
   const abortContext: ReturnType<typeof createAbortSignalWithTimeout> =
@@ -85,7 +97,12 @@ async function fetchCountries(
     throw error;
   } finally {
     abortContext.cleanup();
+    removeCancellationCallback();
   }
+}
+
+function createAbortError(): DOMException {
+  return new DOMException('The request was cancelled.', 'AbortError');
 }
 
 async function parseJson(

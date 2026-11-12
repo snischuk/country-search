@@ -2,16 +2,25 @@ export type Debounced<CallbackArguments extends unknown[]> = ((
   ...callbackArguments: CallbackArguments
 ) => void) & { cancel(): void };
 
-export function debounce<CallbackArguments extends unknown[]>(
+export interface TimerDriver<TimerHandle> {
+  scheduleTimeout(callback: () => void, delayMilliseconds: number): TimerHandle;
+  cancelTimeout(timerHandle: TimerHandle): void;
+}
+
+export function debounce<CallbackArguments extends unknown[], TimerHandle>(
   callbackToDebounce: (...callbackArguments: CallbackArguments) => void,
   delayMilliseconds: number,
+  timerDriver: TimerDriver<TimerHandle>,
 ): Debounced<CallbackArguments> {
-  let timerId: ReturnType<typeof setTimeout> | undefined;
+  let timerHandle: TimerHandle | undefined;
   let pendingArguments: CallbackArguments | undefined;
 
   function cancel(): void {
-    clearTimeout(timerId);
-    timerId = undefined;
+    if (timerHandle !== undefined) {
+      timerDriver.cancelTimeout(timerHandle);
+      timerHandle = undefined;
+    }
+
     pendingArguments = undefined;
   }
 
@@ -20,7 +29,7 @@ export function debounce<CallbackArguments extends unknown[]>(
 
     pendingArguments = callbackArguments;
 
-    timerId = setTimeout((): void => {
+    timerHandle = timerDriver.scheduleTimeout((): void => {
       const scheduledArguments: CallbackArguments | undefined =
         pendingArguments;
 

@@ -1,7 +1,9 @@
-import { isObject } from '@/shared/utils/is-object';
-
 import { ValidationError } from '../application/search-errors';
 import type { Country, Currency } from '../domain/country.type';
+
+function isObject(value: unknown): value is object {
+  return typeof value === 'object' && value !== null;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return isObject(value) && !Array.isArray(value);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createAbortSignalWithTimeout } from '@/shared/utils/abort-signals';
+import { createAbortSignalWithTimeout } from '@/features/country-search/infrastructure/abort-signal.adapter';
 
 const REQUEST_TIMEOUT_MS: number = 10_000;
 const BEFORE_TIMEOUT_MS: number = REQUEST_TIMEOUT_MS - 1;
