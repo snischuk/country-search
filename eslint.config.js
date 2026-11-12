@@ -39,6 +39,31 @@ export default defineConfig([
     },
   },
   {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        {
+          property: 'innerHTML',
+          message: 'Use textContent and createElement for dynamic content.',
+        },
+        {
+          property: 'outerHTML',
+          message: 'Use textContent and createElement for dynamic content.',
+        },
+        {
+          property: 'insertAdjacentHTML',
+          message: 'Use textContent and createElement for dynamic content.',
+        },
+        {
+          object: 'document',
+          property: 'write',
+          message: 'Use textContent and createElement for dynamic content.',
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
   },
