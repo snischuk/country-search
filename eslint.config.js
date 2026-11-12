@@ -7,8 +7,11 @@ import unicorn from 'eslint-plugin-unicorn';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
+import boundariesConfig from './eslint.boundaries.js';
+
 export default defineConfig([
   globalIgnores(['dist/**', 'dist-ssr/**', 'coverage/**']),
+  boundariesConfig,
   {
     files: ['**/*.{js,ts}'],
     plugins: { 'import-x': importX, 'function-name': functionName },
