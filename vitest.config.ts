@@ -8,7 +8,7 @@ export default mergeConfig(
     test: {
       environment: 'node',
       include: ['tests/**/*.test.ts'],
-      passWithNoTests: true,
+      passWithNoTests: false,
       restoreMocks: true,
       unstubGlobals: true,
     },
