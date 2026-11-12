@@ -17,5 +17,5 @@ export type SearchState =
       readonly query: string;
       readonly errorKind: SearchErrorKind;
       readonly message: string;
-      readonly status: number | null;
+      readonly statusCode: number | null;
     };
