@@ -15,3 +15,8 @@ export type {
   HistoryRecorder,
   SearchController,
 } from './application/search.port';
+export { createCountrySearchPage } from './presentation/country-search.page';
+export type {
+  CountrySearchPage,
+  CountrySearchPageCallbacks,
+} from './presentation/country-search.page';

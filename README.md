@@ -3,7 +3,7 @@
 ## Project structure
 
 The project is organized by feature. `src/main.ts` still displays Hello, world!;
-country-search domain, application, and infrastructure modules are
+country-search domain, application, infrastructure, and presentation modules are
 being built and tested, but the composition root is not connected yet. The tree
 below shows the intended structure as each real responsibility is implemented.
 
