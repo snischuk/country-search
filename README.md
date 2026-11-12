@@ -2,9 +2,9 @@
 
 ## Project structure
 
-The project is organized by feature. The small working example shows how the
-layers connect; it is an architecture demo, not the finished assignment
-implementation. The scaffold can be reshaped when feature development begins.
+The project is organized by feature. The architecture example has been removed;
+the current entry point displays Hello, world!. The structure below describes
+the intended organization as real functionality is developed with tests.
 
 ```text
 src/
@@ -47,12 +47,13 @@ with storage or UI. `shared` contains generic technical code and no product
 business rules. Technical modules in `shared` also keep pure logic separate from
 side effects when both are present.
 
-For history, Domain handles trimming, duplicates, order, and the five-query
-limit. Application accepts a `SearchHistoryStorage` contract, coordinates
+For history, Domain handles trimming, exact case-sensitive duplicates, order,
+and the ten-query limit. Application accepts a `SearchHistoryStorage` contract, coordinates
 recording/reading, and notifies subscribers. Infrastructure implements storage
-and JSON handling. `app/app.ts` creates one service instance and supplies it to
-both features. Replace the storage adapter there to switch to memory, IndexedDB,
-or an API without rewriting the history rules or UI. Storage errors currently
+and JSON handling. The composition root in `app/app.ts` will create one service instance and supply
+it to both features. A matching in-memory adapter replaces localStorage without changing the rules
+or UI. An asynchronous IndexedDB or API adapter also requires an explicitly
+asynchronous port and lifecycle. Storage errors currently
 leave history available in memory for the current session.
 
 ESLint checks layer direction inside features, services, and structured shared

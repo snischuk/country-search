@@ -1,5 +1,1 @@
-import './style.css';
-
-import { startApp } from './app/app.ts';
-
-startApp(document.body);
+document.body.append(document.createTextNode('Hello, world!'));
