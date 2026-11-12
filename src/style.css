@@ -155,8 +155,16 @@ input:focus-visible {
   font-size: 0.95rem;
 }
 
-.country-search__status[data-state='error'] {
+.country-search__error {
+  margin: 0;
   color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+.country-search__error:not(:empty) {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-inline-start: 0.2rem solid currentColor;
 }
 
 .country-search__retry {

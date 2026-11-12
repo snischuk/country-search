@@ -18,6 +18,7 @@ export interface CountrySearchPage {
 
 const UNAVAILABLE_VALUE: string = 'Not available';
 const COUNTRY_FALLBACK_PREFIX_LENGTH: number = 2;
+const SEARCH_ERROR_ID: string = 'country-search-error';
 
 function createInformationItem(label: string, value: string): HTMLSpanElement {
   const item: HTMLSpanElement = document.createElement('span');
@@ -105,7 +106,7 @@ function getStatusMessage(state: SearchState): string {
     case SEARCH_STATUS.empty:
       return `No countries found for ${state.query}.`;
     case SEARCH_STATUS.error:
-      return state.message;
+      return '';
   }
 }
 
@@ -122,6 +123,7 @@ export function createCountrySearchPage(
   const searchField: HTMLInputElement = document.createElement('input');
   const submitButton: HTMLButtonElement = document.createElement('button');
   const status: HTMLParagraphElement = document.createElement('p');
+  const errorMessage: HTMLParagraphElement = document.createElement('p');
   const retryButton: HTMLButtonElement = document.createElement('button');
   const resultList: HTMLUListElement = document.createElement('ul');
 
@@ -161,15 +163,28 @@ export function createCountrySearchPage(
   status.className = 'country-search__status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
+  errorMessage.id = SEARCH_ERROR_ID;
+  errorMessage.className = 'country-search__error';
+  errorMessage.setAttribute('role', 'alert');
+  errorMessage.setAttribute('aria-atomic', 'true');
   retryButton.className = 'country-search__retry';
   retryButton.type = 'button';
   retryButton.textContent = 'Try again';
+  retryButton.setAttribute('aria-describedby', SEARCH_ERROR_ID);
   retryButton.hidden = true;
   resultList.className = 'country-results';
   resultList.setAttribute('aria-labelledby', 'country-search-title');
 
   intro.append(eyebrow, heading, description);
-  page.append(intro, searchForm, hint, status, retryButton, resultList);
+  page.append(
+    intro,
+    searchForm,
+    hint,
+    status,
+    errorMessage,
+    retryButton,
+    resultList,
+  );
 
   searchField.addEventListener('input', (): void => {
     callbacks.onQueryChange(searchField.value);
@@ -186,9 +201,21 @@ export function createCountrySearchPage(
 
   const view: SearchView = {
     render(state: SearchState): void {
+      const shouldRestoreSearchFocus: boolean =
+        state.status !== SEARCH_STATUS.error &&
+        document.activeElement === retryButton;
+
       status.textContent = getStatusMessage(state);
       status.dataset['state'] = state.status;
+      errorMessage.textContent =
+        state.status === SEARCH_STATUS.error ? state.message : '';
+
       retryButton.hidden = state.status !== SEARCH_STATUS.error;
+
+      if (shouldRestoreSearchFocus) {
+        searchField.focus();
+      }
+
       resultList.replaceChildren();
 
       if (state.status === SEARCH_STATUS.results) {
