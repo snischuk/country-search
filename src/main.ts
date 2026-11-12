@@ -4,7 +4,13 @@ import typescriptLogo from './assets/typescript.svg';
 import viteLogo from './assets/vite.svg';
 import { setupCounter } from './counter.ts';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
+const app: HTMLDivElement | null = document.querySelector('#app');
+
+if (app === null) {
+  throw new Error('Missing application element');
+}
+
+app.innerHTML = `
 <section id="center">
   <div class="hero">
     <img src="${heroImg}" class="base" width="170" height="179">
@@ -57,4 +63,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <section id="spacer"></section>
 `;
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!);
+const counterButton: HTMLButtonElement | null =
+  document.querySelector('#counter');
+
+if (counterButton === null) {
+  throw new Error('Missing counter button');
+}
+
+setupCounter(counterButton);
