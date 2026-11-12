@@ -10,7 +10,13 @@ import tseslint from 'typescript-eslint';
 import boundariesConfig from './eslint.boundaries.js';
 
 export default defineConfig([
-  globalIgnores(['dist/**', 'dist-ssr/**', 'coverage/**']),
+  globalIgnores([
+    'dist/**',
+    'dist-ssr/**',
+    'coverage/**',
+    'build/**',
+    '**/*.min.js',
+  ]),
   boundariesConfig,
   {
     files: ['**/*.{js,ts}'],
