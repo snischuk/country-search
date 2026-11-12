@@ -1,7 +1,9 @@
 import type { Country } from '../domain/country.type';
-import { SEARCH_ERROR_TYPES, SEARCH_STATUS } from '../domain/search-state.type';
+import { SEARCH_STATUS } from '../domain/search-state.type';
 import type { SearchState } from '../domain/search-state.type';
 
+import { getSearchError } from './search-errors';
+import type { ClassifiedSearchError } from './search-errors';
 import type {
   ScheduledTask,
   SchedulerFactory,
@@ -12,7 +14,6 @@ import type {
 } from './search.port';
 
 const SEARCH_DEBOUNCE_DELAY_MS: number = 300;
-const SEARCH_FAILED_MESSAGE: string = 'The search could not be completed.';
 
 export function createSearchController(
   searchPort: SearchPort,
@@ -82,7 +83,7 @@ export function createSearchController(
       }
 
       renderState({ status: SEARCH_STATUS.results, query, countries });
-    } catch {
+    } catch (error: unknown) {
       if (
         currentCancellationSource !== cancellationSource ||
         cancellationSource.signal.isCancelled
@@ -90,12 +91,17 @@ export function createSearchController(
         return;
       }
 
+      const classifiedError: ClassifiedSearchError | null =
+        getSearchError(error);
+
+      if (classifiedError === null) {
+        return;
+      }
+
       renderState({
         status: SEARCH_STATUS.error,
         query,
-        errorType: SEARCH_ERROR_TYPES.network,
-        message: SEARCH_FAILED_MESSAGE,
-        statusCode: null,
+        ...classifiedError,
       });
     }
   }
