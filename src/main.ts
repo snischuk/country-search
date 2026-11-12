@@ -1,8 +1,10 @@
 import './style.css';
+
+import { setupCounter } from '@/counter.ts';
+
 import heroImg from './assets/hero.png';
 import typescriptLogo from './assets/typescript.svg';
 import viteLogo from './assets/vite.svg';
-import { setupCounter } from '@/counter.ts';
 
 const app: HTMLDivElement | null = document.querySelector('#app');
 
