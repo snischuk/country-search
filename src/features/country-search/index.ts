@@ -15,6 +15,10 @@ export type {
   HistoryRecorder,
   SearchController,
 } from './application/search.port';
+export { createSearchController } from './application/search-controller';
+export { searchCountries } from './infrastructure/search-countries.adapter';
+export { createBrowserTimerDriver } from './infrastructure/browser-timer.adapter';
+export { createDebounceSchedulerFactory } from './infrastructure/debounce-scheduler.adapter';
 export { createCountrySearchPage } from './presentation/country-search.page';
 export type {
   CountrySearchPage,

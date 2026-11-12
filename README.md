@@ -2,10 +2,11 @@
 
 ## Project structure
 
-The project is organized by feature. `src/main.ts` still displays Hello, world!;
-country-search domain, application, infrastructure, and presentation modules are
-being built and tested, but the composition root is not connected yet. The tree
-below shows the intended structure as each real responsibility is implemented.
+The project is organized by feature. `src/main.ts` loads the styles and starts
+the country search UI. The composition root in `src/app/app.ts` connects the
+page, search controller, HTTP adapter, and browser scheduler through the feature's
+public API. The tree below shows the intended structure as further functionality
+is implemented.
 
 ```text
 src/
