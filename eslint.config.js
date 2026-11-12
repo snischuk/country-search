@@ -1,10 +1,18 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier/flat';
+import importX from 'eslint-plugin-import-x';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig([
   globalIgnores(['dist/**', 'dist-ssr/**', 'coverage/**']),
+  {
+    files: ['**/*.{js,ts}'],
+    plugins: { 'import-x': importX },
+    rules: {
+      'import-x/no-duplicates': 'error',
+    },
+  },
   {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
