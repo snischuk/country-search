@@ -1,0 +1,25 @@
+{
+  "name": "Israel",
+  "alpha3Code": "ISR",
+  "capital": "Jerusalem",
+  "region": "Asia",
+  "population": 9216900,
+  "area": 20770,
+  "borders": ["EGY", "JOR", "LBN", "SYR"],
+  "flags": {
+    "svg": "https://example.com/flag.svg"
+  },
+  "flag": "🇮🇱",
+  "languages": [
+    {
+      "name": "Hebrew"
+    }
+  ],
+  "currencies": [
+    {
+      "code": "ILS",
+      "name": "Israeli new shekel",
+      "symbol": "₪"
+    }
+  ]
+}
