@@ -29,5 +29,5 @@ export interface SearchController {
   searchFromHistory(query: string): void;
   selectCountry(countryId: string): void;
   closeCountryDetails(): void;
-  dispose(): void;
+  destroy(): void;
 }
