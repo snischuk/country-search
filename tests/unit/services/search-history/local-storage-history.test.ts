@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createHistoryService } from '@/services/search-history/application/history-service';
 import { createLocalStorageHistoryAdapter } from '@/services/search-history/infrastructure/local-storage-history.adapter';
 
 const STORAGE_KEY: string = 'country-search.history.v1';
@@ -49,6 +50,14 @@ describe('createLocalStorageHistoryAdapter', (): void => {
     );
   });
 
+  it('restores saved queries from storage in a new adapter instance', (): void => {
+    createLocalStorageHistoryAdapter().save(['Japan', 'Canada']);
+    const restoredAdapter: ReturnType<typeof createLocalStorageHistoryAdapter> =
+      createLocalStorageHistoryAdapter();
+
+    expect(restoredAdapter.load()).toEqual(['Japan', 'Canada']);
+  });
+
   it('filters entries that are not strings from the DTO', (): void => {
     browserStorage.setItem(
       STORAGE_KEY,
@@ -89,6 +98,26 @@ describe('createLocalStorageHistoryAdapter', (): void => {
   });
 
   it('does not throw when browser storage denies writes', (): void => {
+    const deniedStorage: Storage = {
+      ...browserStorage,
+      setItem: (): never => {
+        throw new Error('Storage access denied');
+      },
+    };
+
+    vi.stubGlobal('localStorage', deniedStorage);
+    const adapter: ReturnType<typeof createLocalStorageHistoryAdapter> =
+      createLocalStorageHistoryAdapter();
+
+    const saveHistory: () => void = (): void => {
+      adapter.save(['Japan']);
+    };
+
+    expect(saveHistory).not.toThrow();
+    expect(adapter.load()).toEqual(['Japan']);
+  });
+
+  it('keeps service history available when localStorage rejects a write', (): void => {
     vi.stubGlobal('localStorage', {
       ...browserStorage,
       setItem: (): never => {
@@ -96,10 +125,11 @@ describe('createLocalStorageHistoryAdapter', (): void => {
       },
     });
 
-    const saveHistory: () => void = (): void => {
-      createLocalStorageHistoryAdapter().save(['Japan']);
-    };
+    const historyService: ReturnType<typeof createHistoryService> =
+      createHistoryService(createLocalStorageHistoryAdapter());
 
-    expect(saveHistory).not.toThrow();
+    historyService.recordQuery('Japan');
+
+    expect(historyService.getRecentQueries()).toEqual(['Japan']);
   });
 });
