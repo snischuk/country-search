@@ -32,12 +32,24 @@ export function createSearchCancellationSource(): SearchCancellationSource {
       }
 
       isCancelled = true;
-
-      cancellationCallbacks.forEach((callback: () => void): void => {
-        callback();
-      });
+      const registeredCallbacks: (() => void)[] = [...cancellationCallbacks];
+      const callbackErrors: unknown[] = [];
 
       cancellationCallbacks.clear();
+      registeredCallbacks.forEach((callback: () => void): void => {
+        try {
+          callback();
+        } catch (error: unknown) {
+          callbackErrors.push(error);
+        }
+      });
+
+      if (callbackErrors.length > 0) {
+        throw new AggregateError(
+          callbackErrors,
+          'Cancellation callbacks failed',
+        );
+      }
     },
   };
 }
