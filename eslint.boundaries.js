@@ -27,6 +27,10 @@ export default {
     'boundaries/root-path': import.meta.dirname,
     'boundaries/elements': [
       { type: 'app', pattern: 'src/app' },
+      ...layers.map(layer => ({
+        type: `shared-${layer}`,
+        pattern: `src/shared/${layer}`,
+      })),
       ...moduleKinds.flatMap(kind => [
         ...layers.map(layer => ({
           type: `${kind}-${layer}`,

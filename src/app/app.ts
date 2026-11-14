@@ -1,19 +1,21 @@
 import {
   createBrowserTimerDriver,
-  createCountrySearchPage,
+  createCountrySearchPanel,
   createDebounceSchedulerFactory,
   createSearchController,
   searchCountries,
 } from '@/features/country-search';
 import type {
-  CountrySearchPage,
+  CountrySearchPanel,
   SchedulerFactory,
   SearchController,
   SearchPort,
 } from '@/features/country-search';
 
+import { createCountrySearchPage } from './pages/country-search.page';
+
 export function startApp(container: HTMLElement): () => void {
-  const page: CountrySearchPage = createCountrySearchPage({
+  const searchPanel: CountrySearchPanel = createCountrySearchPanel({
     onQueryChange(rawQuery: string): void {
       controller.updateSearchQuery(rawQuery);
     },
@@ -36,14 +38,16 @@ export function startApp(container: HTMLElement): () => void {
   );
   const controller: SearchController = createSearchController(
     searchPort,
-    page.view,
+    searchPanel.view,
     schedulerFactory,
   );
 
-  container.append(page.element);
+  const page: HTMLElement = createCountrySearchPage(searchPanel.element);
+
+  container.append(page);
 
   return (): void => {
     controller.destroy();
-    page.element.remove();
+    page.remove();
   };
 }

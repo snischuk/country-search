@@ -16,6 +16,8 @@ const root: string = fileURLToPath(new URL('../../', import.meta.url));
 const moduleName: string = `architecture-probe-${process.pid}`;
 const servicePath: string = `src/services/${moduleName}`;
 const sharedPath: string = `src/shared/${moduleName}`;
+const sharedPresentationPath: string = `src/shared/presentation/${moduleName}`;
+const sharedDomainPath: string = `src/shared/domain/${moduleName}`;
 const appPath: string = `src/app/${moduleName}.ts`;
 const cases: ArchitectureCase[] = [
   {
@@ -49,6 +51,30 @@ const cases: ArchitectureCase[] = [
     isDenied: true,
   },
   {
+    title: 'allows presentation to use the shared UI layer',
+    path: `${servicePath}/presentation/shared-ui.ts`,
+    source: `import { value } from '@/shared/presentation/${moduleName}/value'; void value;`,
+    isDenied: false,
+  },
+  {
+    title: 'rejects domain imports of shared UI',
+    path: `${servicePath}/domain/shared-ui.ts`,
+    source: `import { value } from '@/shared/presentation/${moduleName}/value'; void value;`,
+    isDenied: true,
+  },
+  {
+    title: 'rejects shared domain imports of shared presentation',
+    path: `${sharedDomainPath}/forbidden.ts`,
+    source: `import { value } from '@/shared/presentation/${moduleName}/value'; void value;`,
+    isDenied: true,
+  },
+  {
+    title: 'rejects shared UI imports of business services',
+    path: `${sharedPresentationPath}/forbidden.ts`,
+    source: `import { value } from '@/services/${moduleName}/index'; void value;`,
+    isDenied: true,
+  },
+  {
     title: 'allows composition through a public API',
     path: appPath,
     source: `import { value } from '@/services/${moduleName}/index'; void value;`,
@@ -71,6 +97,11 @@ function writeFixture(path: string, source: string): void {
 }
 
 beforeAll(async (): Promise<void> => {
+  writeFixture(
+    `${sharedPresentationPath}/value.ts`,
+    'export const value: number = 1;',
+  );
+
   writeFixture(
     `${servicePath}/domain/value.ts`,
     'export const value: number = 1;',
@@ -105,6 +136,12 @@ beforeAll(async (): Promise<void> => {
 afterAll((): void => {
   rmSync(resolve(root, servicePath), { recursive: true, force: true });
   rmSync(resolve(root, sharedPath), { recursive: true, force: true });
+  rmSync(resolve(root, sharedPresentationPath), {
+    recursive: true,
+    force: true,
+  });
+
+  rmSync(resolve(root, sharedDomainPath), { recursive: true, force: true });
   rmSync(resolve(root, appPath), { force: true });
   rmSync(resolve(root, `src/app/${moduleName}-private.ts`), { force: true });
 });

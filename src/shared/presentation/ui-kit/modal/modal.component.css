@@ -1,0 +1,7 @@
+.ui-modal {
+  max-width: calc(100% - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+.ui-modal::backdrop {
+  background: rgb(35 52 58 / 65%);
+}

@@ -1,0 +1,25 @@
+.ui-button {
+  font: inherit;
+  cursor: pointer;
+}
+.ui-button:focus-visible {
+  outline: 0.2rem solid var(--color-focus);
+  outline-offset: 0.2rem;
+}
+.ui-button--primary {
+  min-height: 3.25rem;
+  padding: 0.7rem 1.2rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: var(--color-accent);
+  color: white;
+  font-weight: 700;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.ui-button--primary:hover {
+  transform: translateY(-1px);
+  background: var(--color-accent-dark);
+}

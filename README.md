@@ -4,32 +4,33 @@
 
 The project is organized by feature. `src/main.ts` loads the styles and starts
 the country search UI. The composition root in `src/app/app.ts` connects the
-page, search controller, HTTP adapter, and browser scheduler through the feature's
-public API. The tree below shows the intended structure as further functionality
+feature panel, search controller, HTTP adapter, and browser scheduler through
+the feature's public API. `app/pages` owns page layout and composes feature UI. The tree below shows the intended structure as further functionality
 is implemented.
 
 ```text
 src/
-├── app/                         # application startup and composition
-├── features/
-│   ├── country-search/          # country search feature
-│   │   ├── domain/              # country model and business rules
-│   │   ├── application/         # search use case and workflow
-│   │   ├── infrastructure/      # countries.dev API and adapter
-│   │   ├── presentation/        # input, interactions, and rendering
-│   │   └── index.ts             # feature's public entry point
-│   └── search-history/          # recent-search history feature
-│       ├── domain/
-│       ├── application/
-│       ├── infrastructure/
-│       ├── presentation/
-│       └── index.ts             # its public entry point
-└── services/
-│   └── search-history/          # shared history capability
-│       ├── domain/              # five unique recent queries
-│       ├── application/         # operations and storage contract
-│       ├── infrastructure/      # localStorage and JSON adapter
-│       └── index.ts             # service public API
+├── app/
+│   ├── app.ts                  # dependency wiring and startup
+│   └── pages/
+│       └── country-search.page.{ts,css}  # page layout composed from feature UI
+├── features/country-search/
+│   ├── domain/
+│   ├── application/
+│   ├── infrastructure/
+│   ├── presentation/
+│   │   ├── country-search-panel/  # *.component.ts + *.component.css
+│   │   ├── country-card/
+│   │   ├── country-details/
+│   │   ├── search-form/
+│   │   ├── search-feedback/
+│   │   └── country-search.utility.ts
+│   └── index.ts
+└── shared/presentation/ui-kit/
+    ├── button/button.component.{ts,css}
+    ├── input/input.component.{ts,css}
+    ├── modal/modal.component.{ts,css}
+    └── index.ts
 ```
 
 Keep the four responsibilities inside the feature that owns them. Domain rules
@@ -38,15 +39,19 @@ infrastructure talks to external systems; presentation handles the UI. The
 `app` folder connects the pieces. A feature's `index.ts` is its public API, so
 other features do not reach into its internal folders. `services` is for a
 cohesive business capability used by multiple features; the API client stays
-inside its feature's infrastructure. There is currently no `shared` module:
-code with one consumer stays with its owner. Add shared code only when
-independent modules genuinely reuse it, and place it in the layer matching its
-responsibility. Do not create a catch-all `utils` directory.
+inside its feature's infrastructure. Generic buttons, inputs, and native modal
+behavior live in `shared/presentation/ui-kit`; they know nothing about countries
+or search states. Feature components assemble these primitives using Country and
+SearchState. Each component owns its TS and CSS; `src/style.css` holds theme tokens
+and global resets. Page layout belongs in `app/pages`.
 
-The same responsibility boundaries apply inside **features, services, and any
-future shared module**.
+A `*.component.ts` file contains one component factory; its matching
+`*.component.css` owns its styles. Child markup stays in its owning component. Cohesive formatters, display values
+and message builders are grouped in the feature's `country-search.utility.ts`.
+
+The same responsibility boundaries apply inside **features, services, and shared**.
 `services` indicates reuse across features; it does not combine business rules
-with storage or UI. A shared module, if introduced, follows the same layer
+with storage or UI. Shared modules follow the same layer
 boundaries: pure logic, runtime integrations, and UI behavior belong to the
 layers that own those responsibilities.
 
