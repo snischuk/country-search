@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "format": "prettier . --write",
-    "format:check": "prettier . --check",
+    "format:check": "git ls-files -z | xargs -0 prettier --check --ignore-unknown",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
     "test": "vitest run",
