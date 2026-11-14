@@ -20,6 +20,7 @@ export interface SearchCancellationSource {
 
 export interface SearchView {
   render(state: SearchState, selectedCountry: Country | null): void;
+  setQuery?(query: string): void;
 }
 
 export interface ScheduledTask {

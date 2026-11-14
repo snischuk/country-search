@@ -152,6 +152,7 @@ export function createSearchController(
     },
 
     searchFromHistory(query: string): void {
+      searchView.setQuery?.(query.trim());
       applyQuery(query, true);
     },
 

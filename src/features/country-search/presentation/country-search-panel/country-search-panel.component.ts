@@ -63,6 +63,9 @@ export function createCountrySearchPanel(
   panel.append(search.element, feedback.element, resultList, details.element);
 
   const view: SearchView = {
+    setQuery(query: string): void {
+      search.field.value = query;
+    },
     render(state: SearchState, selectedCountry: Country | null): void {
       feedback.render(state);
       const countries: readonly Country[] | null =
