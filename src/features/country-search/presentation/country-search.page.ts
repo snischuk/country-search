@@ -3,11 +3,15 @@ import type { Country } from '../domain/country.type';
 import { SEARCH_STATUS } from '../domain/search-state.type';
 import type { SearchState } from '../domain/search-state.type';
 
+import { createCountryDetails } from './country-details';
+import type { CountryDetails } from './country-details';
+
 export interface CountrySearchPageCallbacks {
   onQueryChange(rawQuery: string): void;
   onSubmit(): void;
   onRetry(): void;
   onSelectCountry(countryId: string): void;
+  onCloseDetails(): void;
 }
 
 export interface CountrySearchPage {
@@ -43,7 +47,7 @@ function formatPopulation(population: number | null): string {
 
 function createCountryCard(
   country: Country,
-  onSelectCountry: (countryId: string) => void,
+  onSelectCountry: (countryId: string, trigger: HTMLButtonElement) => void,
 ): HTMLLIElement {
   const listItem: HTMLLIElement = document.createElement('li');
   const cardButton: HTMLButtonElement = document.createElement('button');
@@ -58,6 +62,7 @@ function createCountryCard(
   listItem.className = 'country-results__item';
   cardButton.className = 'country-card';
   cardButton.type = 'button';
+  cardButton.setAttribute('aria-haspopup', 'dialog');
   cardHeader.className = 'country-card__header';
   cardFlag.className = 'country-card__flag';
 
@@ -85,7 +90,7 @@ function createCountryCard(
   cardHeader.append(cardFlag, countryName);
   cardButton.append(cardHeader, countryFacts);
   cardButton.addEventListener('click', (): void => {
-    onSelectCountry(country.id);
+    onSelectCountry(country.id, cardButton);
   });
 
   listItem.append(cardButton);
@@ -126,6 +131,15 @@ export function createCountrySearchPage(
   const errorMessage: HTMLParagraphElement = document.createElement('p');
   const retryButton: HTMLButtonElement = document.createElement('button');
   const resultList: HTMLUListElement = document.createElement('ul');
+  let selectedCountryButton: HTMLButtonElement | null = null;
+  let renderedCountries: readonly Country[] | null = null;
+  const details: CountryDetails = createCountryDetails(
+    (): void => {
+      callbacks.onCloseDetails();
+    },
+    (): HTMLElement =>
+      selectedCountryButton?.isConnected ? selectedCountryButton : searchField,
+  );
 
   page.className = 'country-search';
   intro.className = 'country-search__intro';
@@ -184,6 +198,7 @@ export function createCountrySearchPage(
     errorMessage,
     retryButton,
     resultList,
+    details.element,
   );
 
   searchField.addEventListener('input', (): void => {
@@ -200,7 +215,7 @@ export function createCountrySearchPage(
   });
 
   const view: SearchView = {
-    render(state: SearchState): void {
+    render(state: SearchState, selectedCountry: Country | null): void {
       const shouldRestoreSearchFocus: boolean =
         state.status !== SEARCH_STATUS.error &&
         document.activeElement === retryButton;
@@ -216,17 +231,26 @@ export function createCountrySearchPage(
         searchField.focus();
       }
 
-      resultList.replaceChildren();
+      const countries: readonly Country[] | null =
+        state.status === SEARCH_STATUS.results ? state.countries : null;
 
-      if (state.status === SEARCH_STATUS.results) {
-        state.countries.forEach((country: Country): void => {
-          resultList.append(
-            createCountryCard(country, (countryId: string): void => {
+      if (countries !== renderedCountries) {
+        renderedCountries = countries;
+        resultList.replaceChildren();
+        countries?.forEach((country: Country): void => {
+          const card: HTMLLIElement = createCountryCard(
+            country,
+            (countryId: string, trigger: HTMLButtonElement): void => {
+              selectedCountryButton = trigger;
               callbacks.onSelectCountry(countryId);
-            }),
+            },
           );
+
+          resultList.append(card);
         });
       }
+
+      details.render(selectedCountry);
     },
   };
 

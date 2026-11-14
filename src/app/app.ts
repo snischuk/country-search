@@ -26,6 +26,9 @@ export function startApp(container: HTMLElement): () => void {
     onSelectCountry(countryId: string): void {
       controller.selectCountry(countryId);
     },
+    onCloseDetails(): void {
+      controller.closeCountryDetails();
+    },
   });
   const searchPort: SearchPort = { search: searchCountries };
   const schedulerFactory: SchedulerFactory = createDebounceSchedulerFactory(
