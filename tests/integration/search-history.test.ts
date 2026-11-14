@@ -5,6 +5,7 @@ import {
   SEARCH_STATUS,
   createCachedSearchPort,
   createSearchController,
+  searchCountries,
 } from '@/features/country-search';
 import type {
   HistoryRecorder,
@@ -150,6 +151,30 @@ describe('search history integration', (): void => {
 
     expect(setup.recordQuery.mock.calls).toEqual([['Japan'], ['Japan']]);
     expect(setup.search).toHaveBeenCalledOnce();
+
+    setup.controller.destroy();
+  });
+
+  it('records a history selection when a cached HTTP 404 stays empty', async (): Promise<void> => {
+    const setup: ReturnType<typeof createSearchHistorySetup> =
+      createSearchHistorySetup(true);
+    const fetchMock: Mock<typeof fetch> = vi.spyOn(globalThis, 'fetch');
+
+    fetchMock.mockResolvedValue(new Response('not JSON', { status: 404 }));
+    setup.search.mockImplementation(searchCountries);
+    setup.controller.searchFromHistory('missing');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    setup.controller.searchFromHistory('missing');
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(setup.recordQuery.mock.calls).toEqual([['missing'], ['missing']]);
+    expect(setup.states.at(-1)).toEqual({
+      status: SEARCH_STATUS.empty,
+      query: 'missing',
+    });
 
     setup.controller.destroy();
   });
