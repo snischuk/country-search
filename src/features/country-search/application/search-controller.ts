@@ -6,6 +6,7 @@ import { createSearchCancellationSource } from './search-cancellation';
 import { getSearchError } from './search-errors';
 import type { ClassifiedSearchError } from './search-errors';
 import type {
+  HistoryRecorder,
   ScheduledTask,
   SchedulerFactory,
   SearchCancellationSource,
@@ -20,7 +21,9 @@ export function createSearchController(
   searchPort: SearchPort,
   searchView: SearchView,
   schedulerFactory: SchedulerFactory,
+  historyRecorder?: HistoryRecorder,
 ): SearchController {
+  void historyRecorder;
   let currentQuery: string = '';
   let currentState: SearchState = { status: SEARCH_STATUS.idle };
   let currentCountries: readonly Country[] = [];
