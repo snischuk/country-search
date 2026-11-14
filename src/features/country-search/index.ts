@@ -16,6 +16,7 @@ export type {
   SearchController,
 } from './application/search.port';
 export { createSearchController } from './application/search-controller';
+export { createCachedSearchPort } from './infrastructure/cached-search.adapter';
 export { searchCountries } from './infrastructure/http/search-countries.adapter';
 export { createBrowserTimerDriver } from './infrastructure/scheduling/browser-timer.adapter';
 export { createDebounceSchedulerFactory } from './infrastructure/scheduling/debounce-scheduler.adapter';

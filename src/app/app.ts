@@ -1,5 +1,6 @@
 import {
   createBrowserTimerDriver,
+  createCachedSearchPort,
   createCountrySearchPanel,
   createDebounceSchedulerFactory,
   createSearchController,
@@ -32,7 +33,8 @@ export function startApp(container: HTMLElement): () => void {
       controller.closeCountryDetails();
     },
   });
-  const searchPort: SearchPort = { search: searchCountries };
+  const transport: SearchPort = { search: searchCountries };
+  const searchPort: SearchPort = createCachedSearchPort(transport);
   const schedulerFactory: SchedulerFactory = createDebounceSchedulerFactory(
     createBrowserTimerDriver(),
   );
