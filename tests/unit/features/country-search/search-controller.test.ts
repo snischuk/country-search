@@ -38,6 +38,7 @@ interface SearchHarness {
   readonly controller: SearchController;
   readonly pendingSearches: PendingSearch[];
   readonly renderedStates: SearchState[];
+  readonly selectedCountries: (Country | null)[];
   readonly scheduledTasks: ScheduledCall[];
   readonly scheduledDelays: number[];
 }
@@ -62,6 +63,7 @@ function createCountry(name: string): Country {
 function createSearchHarness(): SearchHarness {
   const pendingSearches: PendingSearch[] = [];
   const renderedStates: SearchState[] = [];
+  const selectedCountries: (Country | null)[] = [];
   const scheduledTasks: ScheduledCall[] = [];
   const scheduledDelays: number[] = [];
 
@@ -82,8 +84,9 @@ function createSearchHarness(): SearchHarness {
   };
 
   const searchView: SearchView = {
-    render(state: SearchState): void {
+    render(state: SearchState, selectedCountry: Country | null): void {
       renderedStates.push(state);
+      selectedCountries.push(selectedCountry);
     },
   };
 
@@ -126,6 +129,7 @@ function createSearchHarness(): SearchHarness {
     controller,
     pendingSearches,
     renderedStates,
+    selectedCountries,
     scheduledTasks,
     scheduledDelays,
   };
@@ -506,4 +510,161 @@ describe('search controller errors and retry', (): void => {
       });
     },
   );
+});
+
+describe('search controller country selection', (): void => {
+  const detailedCountry: Country = {
+    ...createCountry('Israel'),
+    id: 'ISR',
+    capital: 'Jerusalem',
+    region: 'Asia',
+    population: 9216900,
+    area: 20770,
+    languages: ['Hebrew'],
+    currencies: [{ code: 'ILS', name: 'Israeli new shekel', symbol: '₪' }],
+    borders: ['EGY', 'JOR', 'LBN', 'SYR'],
+    description: 'Israel is in Asia. Capital: Jerusalem.',
+  };
+  const partialCountry: Country = {
+    ...createCountry('Example Island'),
+    currencies: [{ code: null, name: 'Local currency', symbol: null }],
+  };
+
+  it.each([detailedCountry, partialCountry])(
+    'passes complete details for $name without another request',
+    async (country: Country): Promise<void> => {
+      const {
+        controller,
+        pendingSearches,
+        scheduledTasks,
+        renderedStates,
+        selectedCountries,
+      }: SearchHarness = createSearchHarness();
+
+      controller.updateSearchQuery('country');
+      scheduledTasks[0]?.invoke();
+      pendingSearches[0]?.resolve([detailedCountry, partialCountry]);
+
+      await resolveMicrotasks();
+
+      controller.selectCountry(country.id);
+
+      expect(selectedCountries.at(-1)).toBe(country);
+      expect(renderedStates.at(-1)).toEqual({
+        status: SEARCH_STATUS.results,
+        query: 'country',
+        countries: [detailedCountry, partialCountry],
+      });
+
+      expect(pendingSearches).toHaveLength(1);
+      expect(scheduledTasks).toHaveLength(1);
+    },
+  );
+
+  it('closes details while retaining the same query and result snapshot', async (): Promise<void> => {
+    const {
+      controller,
+      pendingSearches,
+      scheduledTasks,
+      renderedStates,
+      selectedCountries,
+    }: SearchHarness = createSearchHarness();
+
+    controller.updateSearchQuery('Israel');
+    scheduledTasks[0]?.invoke();
+    pendingSearches[0]?.resolve([detailedCountry]);
+
+    await resolveMicrotasks();
+
+    controller.selectCountry(detailedCountry.id);
+    const resultsBeforeClose: SearchState | undefined = renderedStates.at(-1);
+
+    controller.closeCountryDetails();
+
+    expect(selectedCountries.at(-1)).toBeNull();
+    expect(renderedStates.at(-1)).toBe(resultsBeforeClose);
+    expect(pendingSearches).toHaveLength(1);
+    expect(scheduledTasks).toHaveLength(1);
+
+    controller.selectCountry(detailedCountry.id);
+
+    expect(selectedCountries.at(-1)).toBe(detailedCountry);
+    expect(pendingSearches).toHaveLength(1);
+  });
+
+  it.each(['new query', ''])(
+    'closes selected details immediately on input %j',
+    async (nextQuery: string): Promise<void> => {
+      const {
+        controller,
+        pendingSearches,
+        scheduledTasks,
+        renderedStates,
+        selectedCountries,
+      }: SearchHarness = createSearchHarness();
+
+      controller.updateSearchQuery('Israel');
+      scheduledTasks[0]?.invoke();
+      pendingSearches[0]?.resolve([detailedCountry]);
+
+      await resolveMicrotasks();
+
+      controller.selectCountry(detailedCountry.id);
+      controller.updateSearchQuery(nextQuery);
+
+      expect(selectedCountries.at(-1)).toBeNull();
+      expect(renderedStates.at(-1)).toEqual(
+        nextQuery === ''
+          ? { status: SEARCH_STATUS.idle }
+          : { status: SEARCH_STATUS.waiting, query: nextQuery },
+      );
+
+      expect(pendingSearches).toHaveLength(1);
+
+      controller.selectCountry(detailedCountry.id);
+
+      expect(selectedCountries.at(-1)).toBeNull();
+    },
+  );
+
+  it('selects only countries from the latest results', async (): Promise<void> => {
+    const {
+      controller,
+      pendingSearches,
+      scheduledTasks,
+      selectedCountries,
+    }: SearchHarness = createSearchHarness();
+
+    controller.updateSearchQuery('Israel');
+    scheduledTasks[0]?.invoke();
+    pendingSearches[0]?.resolve([detailedCountry]);
+
+    await resolveMicrotasks();
+
+    controller.updateSearchQuery('Example');
+    scheduledTasks[1]?.invoke();
+    pendingSearches[1]?.resolve([partialCountry]);
+
+    await resolveMicrotasks();
+
+    controller.selectCountry(detailedCountry.id);
+
+    expect(selectedCountries.at(-1)).toBeNull();
+
+    controller.selectCountry(partialCountry.id);
+
+    expect(selectedCountries.at(-1)).toBe(partialCountry);
+    expect(pendingSearches).toHaveLength(2);
+  });
+
+  it('ignores a selection command before any results exist', (): void => {
+    const { controller, selectedCountries, pendingSearches }: SearchHarness =
+      createSearchHarness();
+
+    controller.selectCountry('unknown');
+    controller.closeCountryDetails();
+
+    expect(selectedCountries.at(-1)).toBeNull();
+    expect(pendingSearches).toHaveLength(0);
+  });
 });
