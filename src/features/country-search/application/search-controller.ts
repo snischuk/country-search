@@ -23,7 +23,6 @@ export function createSearchController(
   schedulerFactory: SchedulerFactory,
   historyRecorder?: HistoryRecorder,
 ): SearchController {
-  void historyRecorder;
   let currentQuery: string = '';
   let currentState: SearchState = { status: SEARCH_STATUS.idle };
   let currentCountries: readonly Country[] = [];
@@ -64,6 +63,7 @@ export function createSearchController(
 
     selectedCountry = null;
     renderState({ status: SEARCH_STATUS.loading, query });
+    historyRecorder?.recordQuery(query);
 
     try {
       const countries: readonly Country[] = await searchPort.search(

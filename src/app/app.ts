@@ -12,10 +12,28 @@ import type {
   SearchController,
   SearchPort,
 } from '@/features/country-search';
+import { createSearchHistoryPanel } from '@/features/search-history';
+import type { SearchHistoryPanel } from '@/features/search-history';
+import {
+  createHistoryService,
+  createLocalStorageHistoryAdapter,
+} from '@/services/search-history';
+import type { HistoryService } from '@/services/search-history';
 
 import { createCountrySearchPage } from './pages/country-search.page';
 
 export function startApp(container: HTMLElement): () => void {
+  const historyService: HistoryService = createHistoryService(
+    createLocalStorageHistoryAdapter(),
+  );
+  const historyPanel: SearchHistoryPanel = createSearchHistoryPanel(
+    historyService,
+    {
+      onSelect(query: string): void {
+        controller.searchFromHistory(query);
+      },
+    },
+  );
   const searchPanel: CountrySearchPanel = createCountrySearchPanel({
     onQueryChange(rawQuery: string): void {
       controller.updateSearchQuery(rawQuery);
@@ -42,14 +60,19 @@ export function startApp(container: HTMLElement): () => void {
     searchPort,
     searchPanel.view,
     schedulerFactory,
+    historyService,
   );
 
-  const page: HTMLElement = createCountrySearchPage(searchPanel.element);
+  const page: HTMLElement = createCountrySearchPage(
+    searchPanel.element,
+    historyPanel.element,
+  );
 
   container.append(page);
 
   return (): void => {
     controller.destroy();
+    historyPanel.destroy();
     page.remove();
   };
 }

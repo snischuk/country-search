@@ -1,6 +1,9 @@
 import './country-search.page.css';
 
-export function createCountrySearchPage(searchPanel: HTMLElement): HTMLElement {
+export function createCountrySearchPage(
+  searchPanel: HTMLElement,
+  historyPanel: HTMLElement,
+): HTMLElement {
   const page: HTMLElement = document.createElement('main');
   const intro: HTMLElement = document.createElement('header');
   const eyebrow: HTMLParagraphElement = document.createElement('p');
@@ -18,7 +21,7 @@ export function createCountrySearchPage(searchPanel: HTMLElement): HTMLElement {
     'Search for a country and explore the details that make it unique.';
 
   intro.append(eyebrow, heading, description);
-  page.append(intro, searchPanel);
+  page.append(intro, searchPanel, historyPanel);
 
   return page;
 }
