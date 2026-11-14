@@ -5,13 +5,13 @@ import { ValidationError } from '@/features/country-search/application/search-er
 import type { Country } from '@/features/country-search/domain/country.type';
 import { mapCountryResponse } from '@/features/country-search/infrastructure/http/map-country-response';
 
-const fullCountryResponse: unknown = JSON.parse(
+const fullResponse: unknown = JSON.parse(
   readFileSync(
     new URL('../../../fixtures/countries/full.json', import.meta.url),
     'utf8',
   ),
 );
-const partialCountryResponse: unknown = JSON.parse(
+const partialResponse: unknown = JSON.parse(
   readFileSync(
     new URL('../../../fixtures/countries/partial.json', import.meta.url),
     'utf8',
@@ -19,10 +19,8 @@ const partialCountryResponse: unknown = JSON.parse(
 );
 
 describe('mapCountryResponse', (): void => {
-  it('maps the documented country fields', (): void => {
-    const mappedCountry: Country = mapCountryResponse(fullCountryResponse);
-
-    expect(mappedCountry).toMatchObject({
+  it('maps documented fields into the complete country model', (): void => {
+    expect(mapCountryResponse(fullResponse)).toEqual({
       id: 'ISR',
       name: 'Israel',
       capital: 'Jerusalem',
@@ -33,16 +31,13 @@ describe('mapCountryResponse', (): void => {
       borders: ['EGY', 'JOR', 'LBN', 'SYR'],
       currencies: [{ code: 'ILS', name: 'Israeli new shekel', symbol: '₪' }],
       flagUrl: 'https://example.com/flag.svg',
+      flagEmoji: '🇮🇱',
+      description: 'Israel is in Asia. Capital: Jerusalem.',
     });
-
-    expect(mappedCountry.description).toContain('Israel');
-    expect(mappedCountry.description).toContain('Asia');
   });
 
-  it('preserves unavailable optional values rather than inventing data', (): void => {
-    const mappedCountry: Country = mapCountryResponse(partialCountryResponse);
-
-    expect(mappedCountry).toMatchObject({
+  it('represents missing optional fields explicitly', (): void => {
+    expect(mapCountryResponse(partialResponse)).toEqual({
       id: 'Example Island',
       name: 'Example Island',
       capital: null,
@@ -50,73 +45,103 @@ describe('mapCountryResponse', (): void => {
       population: null,
       area: null,
       flagUrl: null,
+      flagEmoji: '🏳️',
       languages: [],
       currencies: [],
       borders: [],
+      description: 'Example Island.',
     });
   });
 
-  it('rejects invalid required names and non-record payloads', (): void => {
-    [null, [], 1, {}, { name: '' }, { name: '   ' }, { name: 42 }].forEach(
-      (invalidCountryResponse: unknown): void => {
-        expect((): Country =>
-          mapCountryResponse(invalidCountryResponse),
-        ).toThrow(ValidationError);
-      },
-    );
-  });
+  it.each(
+    [null, [], undefined, 1, {}, { name: '' }, { name: ' ' }, { name: 42 }].map(
+      (payload: unknown): { payload: unknown } => ({ payload }),
+    ),
+  )(
+    'rejects an invalid required name or payload: $payload',
+    ({ payload }: { payload: unknown }): void => {
+      expect((): Country => mapCountryResponse(payload)).toThrow(
+        ValidationError,
+      );
+    },
+  );
 
-  it('accepts finite zero and rejects invalid numeric fields as unavailable', (): void => {
-    expect(
-      mapCountryResponse({ name: 'Example', population: 0, area: 0 }),
-    ).toMatchObject({ population: 0, area: 0 });
+  it.each([
+    { population: 0, area: 0, expectedPopulation: 0, expectedArea: 0 },
+    {
+      population: -1,
+      area: Number.NaN,
+      expectedPopulation: null,
+      expectedArea: null,
+    },
+    {
+      population: Infinity,
+      area: '100',
+      expectedPopulation: null,
+      expectedArea: null,
+    },
+  ])(
+    'normalizes numeric fields: $population / $area',
+    ({
+      population,
+      area,
+      expectedPopulation,
+      expectedArea,
+    }: {
+      population: unknown;
+      area: unknown;
+      expectedPopulation: number | null;
+      expectedArea: number | null;
+    }): void => {
+      expect(
+        mapCountryResponse({ name: 'Example', population, area }),
+      ).toMatchObject({ population: expectedPopulation, area: expectedArea });
+    },
+  );
 
-    expect(
-      mapCountryResponse({ name: 'Example', population: -1, area: Number.NaN }),
-    ).toMatchObject({ population: null, area: null });
-
-    expect(
-      mapCountryResponse({
-        name: 'Example',
-        population: Infinity,
-        area: '100',
-      }),
-    ).toMatchObject({ population: null, area: null });
-  });
-
-  it('validates flag protocols and supports png, URL and emoji variants', (): void => {
-    expect(
-      mapCountryResponse({
+  it.each([
+    {
+      payload: {
         name: 'Example',
         flags: {
           svg: 'javascript:alert(1)',
           png: 'https://example.com/flag.png',
         },
-      }).flagUrl,
-    ).toBe('https://example.com/flag.png');
-
-    expect(
-      mapCountryResponse({
-        name: 'Example',
-        flag: 'https://example.com/flag.svg',
-      }).flagUrl,
-    ).toBe('https://example.com/flag.svg');
-
-    expect(mapCountryResponse({ name: 'Japan', flag: '🇯🇵' })).toMatchObject({
-      flagEmoji: '🇯🇵',
-      flagUrl: null,
-    });
-
-    expect(
-      mapCountryResponse({
+      },
+      flagUrl: 'https://example.com/flag.png',
+      flagEmoji: null,
+    },
+    {
+      payload: { name: 'Example', flag: 'https://example.com/flag.svg' },
+      flagUrl: 'https://example.com/flag.svg',
+      flagEmoji: null,
+    },
+    { payload: { name: 'Japan', flag: '🇯🇵' }, flagUrl: null, flagEmoji: '🇯🇵' },
+    {
+      payload: {
         name: 'Example',
         flag: 'javascript:alert(1)',
         flags: { svg: 'data:text/html,unsafe' },
-      }),
-    ).toMatchObject({ flagUrl: null, flagEmoji: null });
-  });
+      },
+      flagUrl: null,
+      flagEmoji: null,
+    },
+  ])(
+    'normalizes a flag safely: $payload',
+    ({
+      payload,
+      flagUrl,
+      flagEmoji,
+    }: {
+      payload: unknown;
+      flagUrl: string | null;
+      flagEmoji: string | null;
+    }): void => {
+      expect(mapCountryResponse(payload)).toMatchObject({ flagUrl, flagEmoji });
+    },
+  );
 
-  it('filters malformed optional collection entries and normalizes text', (): void => {
+  it('trims text and filters malformed optional collection entries', (): void => {
     expect(
       mapCountryResponse({
         name: ' Example ',
@@ -132,14 +157,16 @@ describe('mapCountryResponse', (): void => {
     });
   });
 
-  it('does not mutate input collections', (): void => {
-    const rawCountry: { name: string; borders: string[] } = {
+  it('returns normalized collections without mutating or sharing the input arrays', (): void => {
+    const payload: { name: string; borders: string[] } = {
       name: 'Example',
       borders: [' AAA '],
     };
-    const mappedCountry: Country = mapCountryResponse(rawCountry);
+    const mapped: Country = mapCountryResponse(payload);
 
-    expect(rawCountry.borders).toEqual([' AAA ']);
-    expect(mappedCountry.borders).toEqual(['AAA']);
+    expect(mapped.borders).toEqual(['AAA']);
+    expect(payload.borders).toEqual([' AAA ']);
+    payload.borders.push('BBB');
+    expect(mapped.borders).toEqual(['AAA']);
   });
 });

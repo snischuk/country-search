@@ -4,34 +4,32 @@ import type { Mock } from 'vitest';
 import { createSearchCancellationSource } from '@/features/country-search/application/search-cancellation';
 import type { SearchCancellationSource } from '@/features/country-search/application/search.port';
 
-describe('createSearchCancellationSource', (): void => {
-  it('notifies every subscriber before reporting callback failures', (): void => {
+describe('search cancellation', (): void => {
+  it('starts active and notifies subscribers only once', (): void => {
     const source: SearchCancellationSource = createSearchCancellationSource();
-    const callbackError: Error = new Error('Callback failed');
-    const remainingCallback: Mock<() => void> = vi.fn();
+    const onCancel: Mock<() => void> = vi.fn();
 
-    source.signal.onCancel((): never => {
-      throw callbackError;
-    });
+    source.signal.onCancel(onCancel);
+    expect(source.signal.isCancelled).toBe(false);
+    expect(onCancel).not.toHaveBeenCalled();
+    source.cancel();
+    source.cancel();
 
-    source.signal.onCancel(remainingCallback);
-
-    expect((): void => source.cancel()).toThrow(AggregateError);
-    expect(remainingCallback).toHaveBeenCalledExactlyOnceWith();
     expect(source.signal.isCancelled).toBe(true);
-    expect((): void => source.cancel()).not.toThrow();
-    expect(remainingCallback).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('includes every callback failure in the reported error', (): void => {
+  it('notifies all subscribers before reporting every callback failure', (): void => {
     const source: SearchCancellationSource = createSearchCancellationSource();
     const firstError: Error = new Error('First failure');
     const secondError: Error = new Error('Second failure');
+    const onCancel: Mock<() => void> = vi.fn();
 
     source.signal.onCancel((): never => {
       throw firstError;
     });
 
+    source.signal.onCancel(onCancel);
     source.signal.onCancel((): never => {
       throw secondError;
     });
@@ -39,21 +37,35 @@ describe('createSearchCancellationSource', (): void => {
     expect((): void => source.cancel()).toThrow(
       expect.objectContaining({ errors: [firstError, secondError] }),
     );
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(source.signal.isCancelled).toBe(true);
+    expect((): void => source.cancel()).not.toThrow();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves unsubscription and immediate notification after cancellation', (): void => {
+  it('does not notify unsubscribed callbacks', (): void => {
     const source: SearchCancellationSource = createSearchCancellationSource();
-    const unsubscribedCallback: Mock<() => void> = vi.fn();
-    const lateCallback: Mock<() => void> = vi.fn();
-    const unsubscribe: () => void =
-      source.signal.onCancel(unsubscribedCallback);
+    const onCancel: Mock<() => void> = vi.fn();
+    const unsubscribe: () => void = source.signal.onCancel(onCancel);
 
     unsubscribe();
-    source.cancel();
-    source.signal.onCancel(lateCallback);
+    unsubscribe();
     source.cancel();
 
-    expect(unsubscribedCallback).not.toHaveBeenCalled();
-    expect(lateCallback).toHaveBeenCalledExactlyOnceWith();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('immediately notifies a subscriber registered after cancellation', (): void => {
+    const source: SearchCancellationSource = createSearchCancellationSource();
+    const onCancel: Mock<() => void> = vi.fn();
+
+    source.cancel();
+    const unsubscribe: () => void = source.signal.onCancel(onCancel);
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    source.cancel();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

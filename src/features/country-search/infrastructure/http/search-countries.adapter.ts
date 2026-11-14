@@ -2,7 +2,6 @@ import {
   HttpError,
   ValidationError,
 } from '@/features/country-search/application/search-errors';
-import type { SearchCancellationSignal } from '@/features/country-search/application/search.port';
 import type { Country } from '@/features/country-search/domain/country.type';
 import { createAbortSignalWithTimeout } from '@/features/country-search/infrastructure/http/abort-signal.adapter';
 import { mapCountryResponse } from '@/features/country-search/infrastructure/http/map-country-response';
@@ -12,48 +11,23 @@ const HTTP_GET_METHOD: string = 'GET';
 const HTTP_NOT_FOUND_STATUS: number = 404;
 const REQUEST_TIMEOUT_MS: number = 10_000;
 
-export function searchCountries(
+export async function searchCountries(
   query: string,
-  cancellationSignal: SearchCancellationSignal,
+  signal: AbortSignal,
 ): Promise<readonly Country[]> {
   const normalizedQuery: string = query.trim();
 
-  if (cancellationSignal.isCancelled) {
-    return Promise.reject(createAbortError());
+  if (signal.aborted) {
+    throw getAbortReason(signal);
   }
 
   if (normalizedQuery.length === 0) {
-    return Promise.resolve([]);
+    return [];
   }
 
-  const callerController: AbortController = new AbortController();
-  const removeCancellationCallback: () => void = cancellationSignal.onCancel(
-    (): void => {
-      callerController.abort();
-    },
-  );
-
-  if (cancellationSignal.isCancelled) {
-    removeCancellationCallback();
-
-    return Promise.reject(createAbortError());
-  }
-
-  return fetchCountries(
-    normalizedQuery,
-    callerController.signal,
-    removeCancellationCallback,
-  );
-}
-
-async function fetchCountries(
-  normalizedQuery: string,
-  callerSignal: AbortSignal,
-  removeCancellationCallback: () => void,
-): Promise<readonly Country[]> {
   const requestUrl: string = `${COUNTRIES_API_URL}/${encodeURIComponent(normalizedQuery)}`;
   const abortContext: ReturnType<typeof createAbortSignalWithTimeout> =
-    createAbortSignalWithTimeout(callerSignal, REQUEST_TIMEOUT_MS);
+    createAbortSignalWithTimeout(signal, REQUEST_TIMEOUT_MS);
 
   try {
     const response: Response = await fetch(requestUrl, {
@@ -91,7 +65,6 @@ async function fetchCountries(
     throw error;
   } finally {
     abortContext.cleanup();
-    removeCancellationCallback();
   }
 }
 

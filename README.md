@@ -71,3 +71,11 @@ ESLint checks layer direction inside features, services, and structured modules,
 plus public entry points for features and services. It cannot decide
 whether a function contains a business rule; that responsibility still requires
 code review. Do not bypass a layer boundary by importing its module's `index.ts`.
+
+## Search contracts
+
+`searchCountries(query, signal)` accepts a native `AbortSignal`. The composition
+root supplies `createSearchCountriesAdapter()` to the controller; this adapter
+translates application cancellation into a native signal and releases its
+subscription when the HTTP operation finishes. `debounce(callback, delay)` uses
+runtime timers by default and accepts an optional third timer driver for injection.

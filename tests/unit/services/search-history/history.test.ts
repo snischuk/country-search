@@ -5,8 +5,7 @@ import {
   getNormalizedHistory,
 } from '@/services/search-history/domain/history';
 
-const EXPECTED_HISTORY_LIMIT: number = 10;
-const QUERIES: readonly string[] = [
+const TEN_RECENT_QUERIES: readonly string[] = [
   'Japan',
   'Canada',
   'Italy',
@@ -17,160 +16,161 @@ const QUERIES: readonly string[] = [
   'Brazil',
   'China',
   'India',
-  'Norway',
-  'Iceland',
 ];
 
-describe('getNormalizedHistory', (): void => {
-  it('keeps empty history empty', (): void => {
-    expect(getNormalizedHistory([])).toEqual([]);
-  });
-
-  it('trims entries and removes empty or whitespace-only queries', (): void => {
-    expect(
-      getNormalizedHistory([' Japan ', '', '  ', '\t\n', ' Canada ']),
-    ).toEqual(['Japan', 'Canada']);
-  });
-
-  it('retains the first and newest valid occurrence of a duplicate', (): void => {
-    expect(
-      getNormalizedHistory([
-        'Canada',
-        ' Japan ',
-        ' Canada ',
-        'Iceland',
-        'Japan',
-      ]),
-    ).toEqual(['Canada', 'Japan', 'Iceland']);
-  });
-
-  it('keeps case variants and internal whitespace distinct', (): void => {
-    expect(
-      getNormalizedHistory([
-        'Japan',
-        'japan',
-        'New Zealand',
-        'New  Zealand',
-        'Japan',
-      ]),
-    ).toEqual(['Japan', 'japan', 'New Zealand', 'New  Zealand']);
-  });
-
-  it('retains the ten newest distinct nonempty entries after normalization', (): void => {
-    const loadedQueries: readonly string[] = [
-      '',
-      '  ',
-      ...QUERIES.flatMap((query: string): string[] => [query, ` ${query} `]),
-    ];
-
-    expect(getNormalizedHistory(loadedQueries)).toEqual(
-      QUERIES.slice(0, EXPECTED_HISTORY_LIMIT),
-    );
-
-    expect(getNormalizedHistory(loadedQueries)).toHaveLength(
-      EXPECTED_HISTORY_LIMIT,
-    );
-  });
-
-  it('does not mutate the loaded input', (): void => {
-    const loadedQueries: readonly string[] = Object.freeze([
-      ' Japan ',
-      'Canada',
-      'Japan',
-    ]);
-
-    expect(getNormalizedHistory(loadedQueries)).toEqual(['Japan', 'Canada']);
-    expect(loadedQueries).toEqual([' Japan ', 'Canada', 'Japan']);
-  });
-
-  it('is stable when normalizing an already normalized snapshot', (): void => {
-    const normalized: readonly string[] = getNormalizedHistory([
-      ' Japan ',
-      'Canada',
-      'Japan',
-    ]);
-
-    expect(getNormalizedHistory(normalized)).toEqual(normalized);
-  });
-});
-
-describe('addHistoryQuery', (): void => {
-  it('adds a trimmed query at the front', (): void => {
-    expect(addHistoryQuery(['Japan', 'Canada'], ' Iceland ')).toEqual([
-      'Iceland',
-      'Japan',
-      'Canada',
-    ]);
-  });
-
-  it('moves an existing query to the front without duplicating it', (): void => {
-    expect(addHistoryQuery(['Japan', 'Canada', 'Iceland'], ' Canada ')).toEqual(
-      ['Canada', 'Japan', 'Iceland'],
-    );
-  });
-
-  it('compares queries with case and internal whitespace preserved', (): void => {
-    expect(addHistoryQuery(['Japan', 'New Zealand'], 'japan')).toEqual([
-      'japan',
-      'Japan',
-      'New Zealand',
-    ]);
-
-    expect(addHistoryQuery(['New Zealand'], 'New  Zealand')).toEqual([
-      'New  Zealand',
-      'New Zealand',
-    ]);
-  });
-
-  it.each(['', '  ', '\t\n'])(
-    'ignores empty input %j',
-    (query: string): void => {
-      const history: readonly string[] = ['Japan', 'Canada'];
-
-      expect(addHistoryQuery(history, query)).toEqual(history);
+describe('history normalization', (): void => {
+  it.each([
+    { queries: [], expected: [] },
+    {
+      queries: [' Japan ', '', ' ', '\t\n', ' Canada '],
+      expected: ['Japan', 'Canada'],
+    },
+    {
+      queries: ['Canada', ' Japan ', ' Canada ', 'Iceland', 'Japan'],
+      expected: ['Canada', 'Japan', 'Iceland'],
+    },
+    {
+      queries: ['Japan', 'japan', 'New Zealand', 'New  Zealand', 'Japan'],
+      expected: ['Japan', 'japan', 'New Zealand', 'New  Zealand'],
+    },
+  ])(
+    'trims and deduplicates $queries in newest-first order',
+    ({
+      queries,
+      expected,
+    }: {
+      queries: readonly string[];
+      expected: readonly string[];
+    }): void => {
+      expect(getNormalizedHistory(queries)).toEqual(expected);
     },
   );
 
-  it('drops only the oldest entry when adding to a full history', (): void => {
-    const fullHistory: readonly string[] = QUERIES.slice(
-      0,
-      EXPECTED_HISTORY_LIMIT,
-    );
-    const updated: readonly string[] = addHistoryQuery(fullHistory, 'Norway');
+  it('keeps the ten newest distinct entries after skipping invalid and duplicate queries', (): void => {
+    const queries: readonly string[] = [
+      '',
+      ...TEN_RECENT_QUERIES.flatMap((query: string): string[] => [
+        query,
+        ` ${query} `,
+      ]),
+      'Norway',
+      'Iceland',
+    ];
 
-    expect(updated).toEqual(['Norway', ...fullHistory.slice(0, -1)]);
-    expect(updated).toHaveLength(EXPECTED_HISTORY_LIMIT);
-    expect(updated).not.toContain('India');
+    expect(getNormalizedHistory(queries)).toEqual(TEN_RECENT_QUERIES);
   });
 
-  it('keeps every existing entry when repeating a query at the limit', (): void => {
-    const fullHistory: readonly string[] = QUERIES.slice(
-      0,
-      EXPECTED_HISTORY_LIMIT,
-    );
+  it('does not mutate loaded history', (): void => {
+    const queries: readonly string[] = Object.freeze([
+      ' Japan ',
+      'Canada',
+      'Japan',
+    ]);
 
-    expect(addHistoryQuery(fullHistory, 'India')).toEqual([
-      'India',
-      ...fullHistory.slice(0, -1),
+    expect(getNormalizedHistory(queries)).toEqual(['Japan', 'Canada']);
+    expect(queries).toEqual([' Japan ', 'Canada', 'Japan']);
+  });
+
+  it('leaves an already normalized snapshot unchanged', (): void => {
+    expect(getNormalizedHistory(['Japan', 'Canada'])).toEqual([
+      'Japan',
+      'Canada',
+    ]);
+  });
+});
+
+describe('recording a history query', (): void => {
+  it.each([
+    {
+      previous: ['Japan', 'Canada'],
+      query: ' Iceland ',
+      expected: ['Iceland', 'Japan', 'Canada'],
+    },
+    {
+      previous: ['Japan', 'Canada', 'Iceland'],
+      query: ' Canada ',
+      expected: ['Canada', 'Japan', 'Iceland'],
+    },
+    {
+      previous: ['Japan', 'New Zealand'],
+      query: 'japan',
+      expected: ['japan', 'Japan', 'New Zealand'],
+    },
+    {
+      previous: ['New Zealand'],
+      query: 'New  Zealand',
+      expected: ['New  Zealand', 'New Zealand'],
+    },
+    {
+      previous: [' Canada ', '', 'Japan', 'Canada'],
+      query: ' Japan ',
+      expected: ['Japan', 'Canada'],
+    },
+  ])(
+    'puts $query first without losing distinct queries',
+    ({
+      previous,
+      query,
+      expected,
+    }: {
+      previous: readonly string[];
+      query: string;
+      expected: readonly string[];
+    }): void => {
+      expect(addHistoryQuery(previous, query)).toEqual(expected);
+    },
+  );
+
+  it.each(['', ' ', '\t\n'])(
+    'ignores blank input %j',
+    (query: string): void => {
+      expect(addHistoryQuery(['Japan', 'Canada'], query)).toEqual([
+        'Japan',
+        'Canada',
+      ]);
+    },
+  );
+
+  it('drops only the oldest query when recording an eleventh distinct query', (): void => {
+    expect(addHistoryQuery(TEN_RECENT_QUERIES, 'Norway')).toEqual([
+      'Norway',
+      'Japan',
+      'Canada',
+      'Italy',
+      'France',
+      'Spain',
+      'Chile',
+      'Peru',
+      'Brazil',
+      'China',
     ]);
   });
 
-  it('maintains domain invariants when previous entries need normalization', (): void => {
-    expect(
-      addHistoryQuery([' Canada ', '', 'Japan', 'Canada'], ' Japan '),
-    ).toEqual(['Japan', 'Canada']);
+  it('does not evict any query when moving an existing entry in a full history', (): void => {
+    expect(addHistoryQuery(TEN_RECENT_QUERIES, 'India')).toEqual([
+      'India',
+      'Japan',
+      'Canada',
+      'Italy',
+      'France',
+      'Spain',
+      'Chile',
+      'Peru',
+      'Brazil',
+      'China',
+    ]);
   });
 
-  it('returns a new snapshot without changing the old one', (): void => {
-    const history: readonly string[] = Object.freeze(['Japan', 'Canada']);
-    const updated: readonly string[] = addHistoryQuery(history, 'Iceland');
+  it('returns a new snapshot without changing previous history', (): void => {
+    const previous: readonly string[] = Object.freeze(['Japan', 'Canada']);
+    const updated: readonly string[] = addHistoryQuery(previous, 'Iceland');
 
     expect(updated).toEqual(['Iceland', 'Japan', 'Canada']);
-    expect(updated).not.toBe(history);
-    expect(history).toEqual(['Japan', 'Canada']);
+    expect(updated).not.toBe(previous);
+    expect(previous).toEqual(['Japan', 'Canada']);
   });
 
-  it('keeps one entry after repeated recording of the same query', (): void => {
+  it('keeps a single entry after recording the same normalized query repeatedly', (): void => {
     const first: readonly string[] = addHistoryQuery([], 'Japan');
     const repeated: readonly string[] = addHistoryQuery(first, ' Japan ');
 

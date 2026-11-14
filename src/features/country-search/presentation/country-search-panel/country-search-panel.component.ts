@@ -23,7 +23,6 @@ export interface CountrySearchPanelCallbacks {
 export interface CountrySearchPanel {
   readonly element: HTMLElement;
   readonly view: SearchView;
-  focusSearchField(): void;
 }
 
 export function createCountrySearchPanel(
@@ -120,8 +119,5 @@ export function createCountrySearchPanel(
   return {
     element: panel,
     view,
-    focusSearchField(): void {
-      search.field.focus();
-    },
   };
 }

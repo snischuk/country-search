@@ -23,6 +23,7 @@ export type {
 } from '@/features/country-search/application/search.port';
 export { createSearchController } from '@/features/country-search/application/search-controller';
 export { createCachedSearchPort } from '@/features/country-search/infrastructure/cached-search.adapter';
+export { createSearchCountriesAdapter } from '@/features/country-search/infrastructure/http/country-search.adapter';
 export { searchCountries } from '@/features/country-search/infrastructure/http/search-countries.adapter';
 export { createBrowserTimerDriver } from '@/features/country-search/infrastructure/scheduling/browser-timer.adapter';
 export { createDebounceSchedulerFactory } from '@/features/country-search/infrastructure/scheduling/debounce-scheduler.adapter';

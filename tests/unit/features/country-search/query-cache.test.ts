@@ -1,74 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
+import { createSearchCancellationSource as createCancellationSource } from '@/features/country-search/application/search-cancellation';
 import {
   HttpError,
   ValidationError,
 } from '@/features/country-search/application/search-errors';
 import type {
-  SearchCancellationSignal,
   SearchCancellationSource,
   SearchPort,
 } from '@/features/country-search/application/search.port';
 import type { Country } from '@/features/country-search/domain/country.type';
 import { createCachedSearchPort } from '@/features/country-search/infrastructure/cached-search.adapter';
 
+import { createCountry } from '../../../support/country';
+import { createDeferred } from '../../../support/deferred';
+import type { Deferred } from '../../../support/deferred';
+
 interface CacheHarness {
   readonly cache: SearchPort;
   readonly transport: SearchPort;
   readonly searchMock: Mock<SearchPort['search']>;
-}
-
-function createCountry(name: string): Country {
-  return {
-    id: name,
-    name,
-    flagUrl: null,
-    flagEmoji: null,
-    capital: null,
-    region: null,
-    population: null,
-    area: null,
-    languages: [],
-    currencies: [],
-    borders: [],
-    description: name,
-  };
-}
-
-function createCancellationSource(): SearchCancellationSource {
-  let isCancelled: boolean = false;
-  const callbacks: Set<() => void> = new Set();
-  const signal: SearchCancellationSignal = {
-    get isCancelled(): boolean {
-      return isCancelled;
-    },
-    onCancel(callback: () => void): () => void {
-      if (isCancelled) {
-        callback();
-
-        return (): void => {};
-      }
-
-      callbacks.add(callback);
-
-      return (): void => {
-        callbacks.delete(callback);
-      };
-    },
-  };
-
-  return {
-    signal,
-    cancel(): void {
-      isCancelled = true;
-      callbacks.forEach((callback: () => void): void => {
-        callback();
-      });
-
-      callbacks.clear();
-    },
-  };
 }
 
 function createCacheHarness(): CacheHarness {
@@ -238,16 +190,10 @@ describe('completed country query cache', (): void => {
   it('does not cache a late success after the caller has cancelled', async (): Promise<void> => {
     const { cache, searchMock }: CacheHarness = createCacheHarness();
     const countries: readonly Country[] = [createCountry('Japan')];
-    const pending: { resolve?: (countries: readonly Country[]) => void } = {};
+    const pending: Deferred<readonly Country[]> = createDeferred();
 
     searchMock
-      .mockReturnValueOnce(
-        new Promise<readonly Country[]>(
-          (resolve: (countries: readonly Country[]) => void): void => {
-            pending.resolve = resolve;
-          },
-        ),
-      )
+      .mockReturnValueOnce(pending.promise)
       .mockResolvedValue(countries);
 
     const cancellation: SearchCancellationSource = createCancellationSource();
@@ -257,7 +203,7 @@ describe('completed country query cache', (): void => {
     );
 
     cancellation.cancel();
-    pending.resolve?.(countries);
+    pending.resolve(countries);
 
     await expect(cancelledSearch).rejects.toMatchObject({ name: 'AbortError' });
     await expect(

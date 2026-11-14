@@ -24,7 +24,6 @@ export interface SearchView {
 }
 
 export interface ScheduledTask {
-  invoke(): void;
   cancel(): void;
 }
 

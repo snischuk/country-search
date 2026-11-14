@@ -9,83 +9,73 @@ import type { ClassifiedSearchError } from '@/features/country-search/applicatio
 import { SEARCH_ERROR_TYPES } from '@/features/country-search/domain/search-state.type';
 import type { SearchErrorType } from '@/features/country-search/domain/search-state.type';
 
-function checkErrorDetails(
-  error: unknown,
-  errorType: SearchErrorType,
-  statusCode: number | null = null,
-): void {
-  const classifiedError: ClassifiedSearchError | null = getSearchError(error);
-
-  expect(classifiedError).toMatchObject({ errorType, statusCode });
-  expect(classifiedError?.message).toBeTypeOf('string');
-  expect(classifiedError?.message.trim()).toBeTruthy();
-}
-
-describe('getSearchError', (): void => {
-  it('keeps intentional cancellation silent', (): void => {
-    const abortError: Error = new Error('The request was cancelled.');
-
-    abortError.name = 'AbortError';
-
-    expect(getSearchError(abortError)).toBeNull();
+describe('search error classification', (): void => {
+  it.each([
+    new DOMException('Cancelled', 'AbortError'),
+    { name: 'AbortError' },
+  ])('keeps cancellation silent: %s', (error: unknown): void => {
+    expect(getSearchError(error)).toBeNull();
   });
 
-  it('recognizes cancellation by name at an unknown boundary', (): void => {
-    const abortError: unknown = { name: 'AbortError' };
+  it.each([
+    {
+      error: new DOMException('Deadline exceeded', 'TimeoutError'),
+      errorType: SEARCH_ERROR_TYPES.timeout,
+      statusCode: null,
+    },
+    {
+      error: { name: 'TimeoutError' },
+      errorType: SEARCH_ERROR_TYPES.timeout,
+      statusCode: null,
+    },
+    {
+      error: new HttpError(503),
+      errorType: SEARCH_ERROR_TYPES.http,
+      statusCode: 503,
+    },
+    {
+      error: new ValidationError(),
+      errorType: SEARCH_ERROR_TYPES.invalidResponse,
+      statusCode: null,
+    },
+    {
+      error: new TypeError('Failed to fetch'),
+      errorType: SEARCH_ERROR_TYPES.network,
+      statusCode: null,
+    },
+  ])(
+    'classifies $errorType with a usable message',
+    ({
+      error,
+      errorType,
+      statusCode,
+    }: {
+      error: unknown;
+      errorType: SearchErrorType;
+      statusCode: number | null;
+    }): void => {
+      const classified: ClassifiedSearchError | null = getSearchError(error);
 
-    expect(getSearchError(abortError)).toBeNull();
-  });
+      expect(classified).toMatchObject({ errorType, statusCode });
+      expect(classified?.message.trim()).toBeTruthy();
+    },
+  );
 
-  it('classifies a deadline failure as a recoverable timeout', (): void => {
-    const timeoutError: Error = new Error('The operation timed out.');
-
-    timeoutError.name = 'TimeoutError';
-
-    checkErrorDetails(timeoutError, SEARCH_ERROR_TYPES.timeout);
-  });
-
-  it('recognizes timeout names without requiring a platform error class', (): void => {
-    const timeoutError: unknown = { name: 'TimeoutError' };
-
-    checkErrorDetails(timeoutError, SEARCH_ERROR_TYPES.timeout);
-  });
-
-  it('retains the HTTP status code for a service failure', (): void => {
-    const serviceError: HttpError = new HttpError(503);
-
-    checkErrorDetails(serviceError, SEARCH_ERROR_TYPES.http, 503);
-  });
-
-  it('explains service failures without exposing HTTP terminology', (): void => {
-    const classifiedError: ClassifiedSearchError | null = getSearchError(
-      new HttpError(503),
-    );
-
-    expect(classifiedError?.message).toBe(
-      'The country service is temporarily unavailable. Please try again in a moment.',
-    );
-
-    expect(classifiedError?.statusCode).toBe(503);
-  });
-
-  it('classifies invalid response data separately from network failures', (): void => {
-    checkErrorDetails(
-      new ValidationError(),
-      SEARCH_ERROR_TYPES.invalidResponse,
-    );
-  });
-
-  it('classifies a failed fetch as a recoverable network error', (): void => {
-    checkErrorDetails(
-      new TypeError('Failed to fetch'),
-      SEARCH_ERROR_TYPES.network,
-    );
+  it('offers recovery for a service failure without exposing technical terminology', (): void => {
+    expect(getSearchError(new HttpError(503))).toMatchObject({
+      message:
+        'The country service is temporarily unavailable. Please try again in a moment.',
+      statusCode: 503,
+    });
   });
 
   it.each([null, undefined, 'failure', 0, {}, { name: 0 }])(
-    'handles an unexpected thrown value safely: %j',
-    (thrownValue: unknown): void => {
-      checkErrorDetails(thrownValue, SEARCH_ERROR_TYPES.network);
+    'handles unexpected thrown input %j',
+    (error: unknown): void => {
+      expect(getSearchError(error)).toMatchObject({
+        errorType: SEARCH_ERROR_TYPES.network,
+        statusCode: null,
+      });
     },
   );
 });

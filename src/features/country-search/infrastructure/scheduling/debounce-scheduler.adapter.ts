@@ -12,12 +12,8 @@ export function createDebounceSchedulerFactory(
   timerDriver: TimerDriver<number>,
 ): SchedulerFactory {
   return (callback: () => void, delayMilliseconds: number): ScheduledTask => {
-    let isPending: boolean = true;
     const debouncedCallback: Debounced<[]> = debounce(
-      (): void => {
-        isPending = false;
-        callback();
-      },
+      callback,
       delayMilliseconds,
       timerDriver,
     );
@@ -25,22 +21,7 @@ export function createDebounceSchedulerFactory(
     debouncedCallback();
 
     return {
-      invoke(): void {
-        if (!isPending) {
-          return;
-        }
-
-        isPending = false;
-        debouncedCallback.cancel();
-        callback();
-      },
-
       cancel(): void {
-        if (!isPending) {
-          return;
-        }
-
-        isPending = false;
         debouncedCallback.cancel();
       },
     };

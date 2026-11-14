@@ -1,277 +1,208 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
-import { ValidationError } from '@/features/country-search/application/search-errors';
-import type { SearchCancellationSignal } from '@/features/country-search/application/search.port';
+import {
+  HttpError,
+  ValidationError,
+} from '@/features/country-search/application/search-errors';
 import type { Country } from '@/features/country-search/domain/country.type';
 import { searchCountries } from '@/features/country-search/infrastructure/http/search-countries.adapter';
 
-const REQUEST_TIMEOUT_MS: number = 10_000;
-
-interface TestCancellationSource {
-  readonly signal: SearchCancellationSignal;
-  cancel(): void;
-}
-
-function createCancellationSource(): TestCancellationSource {
-  let isCancelled: boolean = false;
-  const callbacks: Set<() => void> = new Set();
-  const signal: SearchCancellationSignal = {
-    get isCancelled(): boolean {
-      return isCancelled;
-    },
-
-    onCancel(callback: () => void): () => void {
-      if (isCancelled) {
-        callback();
-
-        return (): void => {};
-      }
-
-      callbacks.add(callback);
-
-      return (): void => {
-        callbacks.delete(callback);
-      };
-    },
-  };
-
-  return {
-    signal,
-    cancel(): void {
-      if (isCancelled) {
-        return;
-      }
-
-      isCancelled = true;
-      callbacks.forEach((callback: () => void): void => {
-        callback();
-      });
-
-      callbacks.clear();
-    },
-  };
-}
+import {
+  createJsonResponse,
+  getRequestSignal,
+  waitForAbort,
+} from '../../../support/http';
 
 beforeEach((): void => {
   vi.useFakeTimers();
 });
 
 afterEach((): void => {
+  vi.clearAllTimers();
   vi.useRealTimers();
-  vi.restoreAllMocks();
 });
 
-describe('searchCountries', (): void => {
-  it('trims and encodes the query and passes a request signal to fetch', async (): Promise<void> => {
-    const fetchMock: ReturnType<typeof vi.spyOn> = vi
+describe('searchCountries HTTP contract', (): void => {
+  it('trims and encodes the query and supplies a fetch signal', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('[]', { status: 200 }));
-    const cancellationSource: TestCancellationSource =
-      createCancellationSource();
+      .mockResolvedValue(createJsonResponse([]));
 
     await expect(
-      searchCountries('  New Zealand / South  ', cancellationSource.signal),
+      searchCountries('  New Zealand / South  ', new AbortController().signal),
     ).resolves.toEqual([]);
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(fetchRequest).toHaveBeenCalledExactlyOnceWith(
       'https://countries.dev/name/New%20Zealand%20%2F%20South',
-      expect.objectContaining({
-        method: 'GET',
-      }),
+      expect.objectContaining({ method: 'GET' }),
     );
 
+    expect(fetchRequest.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('returns an empty list without fetching a blank query', async (): Promise<void> => {
-    const fetchMock: ReturnType<typeof vi.spyOn> = vi.spyOn(
-      globalThis,
-      'fetch',
+  it('maps successful JSON into countries', async (): Promise<void> => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      createJsonResponse([
+        { name: ' Japan ', alpha3Code: 'JPN', capital: ' Tokyo ' },
+      ]),
     );
 
     await expect(
-      searchCountries('  ', createCancellationSource().signal),
+      searchCountries('Japan', new AbortController().signal),
+    ).resolves.toMatchObject([{ id: 'JPN', name: 'Japan', capital: 'Tokyo' }]);
+  });
+
+  it('returns no matches without fetching blank input', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi.spyOn(globalThis, 'fetch');
+
+    await expect(
+      searchCountries(' ', new AbortController().signal),
     ).resolves.toEqual([]);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchRequest).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('rejects an already cancelled request before fetching', async (): Promise<void> => {
-    const cancellationSource: TestCancellationSource =
-      createCancellationSource();
+  it('rejects an already cancelled caller without fetching', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi.spyOn(globalThis, 'fetch');
+    const cancellation: AbortController = new AbortController();
 
-    cancellationSource.cancel();
-    const fetchMock: ReturnType<typeof vi.spyOn> = vi.spyOn(
-      globalThis,
-      'fetch',
-    );
-
+    cancellation.abort();
     await expect(
-      searchCountries('Japan', cancellationSource.signal),
+      searchCountries('Japan', cancellation.signal),
     ).rejects.toMatchObject({ name: 'AbortError' });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchRequest).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('treats 404 as an empty result without parsing a body', async (): Promise<void> => {
-    const notFoundResponse: Response = new Response(null, { status: 404 });
-    const responseBodyReader: ReturnType<typeof vi.spyOn> = vi
-      .spyOn(notFoundResponse, 'json')
-      .mockRejectedValue(new Error('The response body must not be read.'));
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(notFoundResponse);
-
-    await expect(
-      searchCountries('No Such Country', createCancellationSource().signal),
-    ).resolves.toEqual([]);
-
-    expect(responseBodyReader).not.toHaveBeenCalled();
-  });
-
-  it('rejects non-404 HTTP errors with their status', async (): Promise<void> => {
+  it('returns no matches for 404 even with a malformed response body', async (): Promise<void> => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(null, { status: 503 }),
+      new Response('not JSON', { status: 404 }),
     );
 
     await expect(
-      searchCountries('Japan', createCancellationSource().signal),
-    ).rejects.toMatchObject({ name: 'HttpError', statusCode: 503 });
+      searchCountries('missing', new AbortController().signal),
+    ).resolves.toEqual([]);
   });
 
-  it('converts malformed JSON and invalid country responses to ValidationError', async (): Promise<void> => {
-    const malformedJsonResponse: Response = new Response('{', { status: 200 });
+  it.each([400, 401, 429, 500, 503])(
+    'throws HttpError with status %i before parsing the body',
+    async (statusCode: number): Promise<void> => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('not JSON', { status: statusCode }),
+      );
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(malformedJsonResponse);
+      const request: Promise<readonly Country[]> = searchCountries(
+        'Japan',
+        new AbortController().signal,
+      );
+
+      await expect(request).rejects.toBeInstanceOf(HttpError);
+      await expect(request).rejects.toMatchObject({ statusCode });
+    },
+  );
+
+  it.each(['{', '{}', '[{"capital":"Tokyo"}]'])(
+    'rejects malformed country responses: %s',
+    async (body: string): Promise<void> => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body));
+
+      await expect(
+        searchCountries('Japan', new AbortController().signal),
+      ).rejects.toBeInstanceOf(ValidationError);
+    },
+  );
+
+  it('preserves fetch network failures', async (): Promise<void> => {
+    const networkError: TypeError = new TypeError('Offline');
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(networkError);
 
     await expect(
-      searchCountries('Japan', createCancellationSource().signal),
-    ).rejects.toBeInstanceOf(ValidationError);
+      searchCountries('Japan', new AbortController().signal),
+    ).rejects.toBe(networkError);
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response('[{"capital":"Tokyo"}]', { status: 200 }),
-    );
-
-    await expect(
-      searchCountries('Japan', createCancellationSource().signal),
-    ).rejects.toBeInstanceOf(ValidationError);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('preserves network errors that happen while reading the response body', async (): Promise<void> => {
+  it('preserves a network failure while reading the response body', async (): Promise<void> => {
     const response: Response = new Response();
-    const networkError: TypeError = new TypeError('Connection lost.');
+    const networkError: TypeError = new TypeError('Connection lost');
 
     vi.spyOn(response, 'json').mockRejectedValue(networkError);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
 
     await expect(
-      searchCountries('Japan', createCancellationSource().signal),
+      searchCountries('Japan', new AbortController().signal),
     ).rejects.toBe(networkError);
   });
+});
 
+describe('searchCountries cancellation and deadline', (): void => {
   it('aborts a pending fetch when the caller cancels', async (): Promise<void> => {
-    const cancellationSource: TestCancellationSource =
-      createCancellationSource();
-    const requestSignals: AbortSignal[] = [];
-    const fetchMock: ReturnType<typeof vi.spyOn> = vi
+    const cancellation: AbortController = new AbortController();
+    const fetchRequest: Mock<typeof fetch> = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(
-        (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-          const requestSignal: AbortSignal | null = init?.signal ?? null;
-
-          if (requestSignal !== null) {
-            requestSignals.push(requestSignal);
-          }
-
-          return new Promise<Response>(
-            (
-              _resolve: (value: Response | PromiseLike<Response>) => void,
-              reject: (reason?: Error) => void,
-            ): void => {
-              requestSignal?.addEventListener(
-                'abort',
-                (): void => {
-                  const abortReason: unknown = requestSignal?.reason;
-
-                  reject(
-                    abortReason instanceof Error
-                      ? abortReason
-                      : new Error('The request was aborted.'),
-                  );
-                },
-                { once: true },
-              );
-            },
-          );
-        },
+        (_input: RequestInfo | URL, options?: RequestInit): Promise<Response> =>
+          waitForAbort(getRequestSignal(options)),
       );
-    const searchPromise: Promise<readonly Country[]> = searchCountries(
+    const request: Promise<readonly Country[]> = searchCountries(
       'Japan',
-      cancellationSource.signal,
+      cancellation.signal,
     );
 
-    cancellationSource.cancel();
+    cancellation.abort();
 
-    await expect(searchPromise).rejects.toMatchObject({ name: 'AbortError' });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(requestSignals[0]?.aborted).toBe(true);
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('aborts while reading the response body at the request deadline', async (): Promise<void> => {
-    const cancellationSource: TestCancellationSource =
-      createCancellationSource();
-    let requestSignal: AbortSignal | undefined;
-    const fetchMock: ReturnType<typeof vi.spyOn> = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(
-        (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-          requestSignal = init?.signal ?? undefined;
+  it.each(['fetch', 'body'])(
+    'reports TimeoutError when %s stalls for ten seconds',
+    async (phase: string): Promise<void> => {
+      const cancellation: AbortController = new AbortController();
+      const fetchRequest: Mock<typeof fetch> = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(
+          (
+            _input: RequestInfo | URL,
+            options?: RequestInit,
+          ): Promise<Response> => {
+            const signal: AbortSignal = getRequestSignal(options);
 
-          const response: Response = new Response();
+            if (phase === 'fetch') {
+              return waitForAbort(signal);
+            }
 
-          response.json = (): Promise<unknown> =>
-            new Promise<unknown>(
-              (
-                _resolve: (value: unknown) => void,
-                reject: (reason?: Error) => void,
-              ): void => {
-                requestSignal?.addEventListener(
-                  'abort',
-                  (): void => {
-                    const abortReason: unknown = requestSignal?.reason;
+            const response: Response = new Response();
 
-                    reject(
-                      abortReason instanceof Error
-                        ? abortReason
-                        : new Error('The request was aborted.'),
-                    );
-                  },
-                  { once: true },
-                );
-              },
+            vi.spyOn(response, 'json').mockImplementation(
+              (): Promise<unknown> => waitForAbort(signal),
             );
 
-          return Promise.resolve(response);
-        },
+            return Promise.resolve(response);
+          },
+        );
+      const request: Promise<readonly Country[]> = searchCountries(
+        'Japan',
+        cancellation.signal,
       );
-    const searchPromise: Promise<readonly Country[]> = searchCountries(
-      'Japan',
-      cancellationSource.signal,
-    );
-    const searchError: Promise<unknown> = searchPromise.catch(
-      (error: unknown): unknown => error,
-    );
+      const timeoutAssertion: Promise<void> = expect(
+        request,
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
 
-    await Promise.resolve();
-    expect(fetchMock).toHaveBeenCalledOnce();
-
-    await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
-
-    await expect(searchError).resolves.toMatchObject({ name: 'TimeoutError' });
-    expect(requestSignal?.aborted).toBe(true);
-    expect(vi.getTimerCount()).toBe(0);
-  });
+      await vi.advanceTimersByTimeAsync(9999);
+      expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await timeoutAssertion;
+      expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(cancellation.signal.aborted).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 });

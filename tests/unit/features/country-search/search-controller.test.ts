@@ -1,19 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createSearchController } from '@/features/country-search/application/search-controller';
 import {
   HttpError,
   ValidationError,
 } from '@/features/country-search/application/search-errors';
-import type {
-  HistoryRecorder,
-  ScheduledTask,
-  SchedulerFactory,
-  SearchCancellationSignal,
-  SearchController,
-  SearchPort,
-  SearchView,
-} from '@/features/country-search/application/search.port';
+import type { SearchCancellationSignal } from '@/features/country-search/application/search.port';
 import type { Country } from '@/features/country-search/domain/country.type';
 import {
   SEARCH_ERROR_TYPES,
@@ -24,317 +15,295 @@ import type {
   SearchState,
 } from '@/features/country-search/domain/search-state.type';
 
-interface PendingSearch {
-  readonly query: string;
-  readonly cancellationSignal: SearchCancellationSignal;
-  readonly resolve: (countries: readonly Country[]) => void;
-  readonly reject: (error: unknown) => void;
-}
+import { createCountry } from '../../../support/country';
+import { createDeferred } from '../../../support/deferred';
+import type { Deferred } from '../../../support/deferred';
+import { createControllerSetup } from '../../../support/search-controller';
 
-interface ScheduledCall extends ScheduledTask {
-  isCancelled(): boolean;
-}
+beforeEach((): void => {
+  vi.useFakeTimers();
+});
 
-interface SearchHarness {
-  readonly controller: SearchController;
-  readonly pendingSearches: PendingSearch[];
-  readonly renderedStates: SearchState[];
-  readonly selectedCountries: (Country | null)[];
-  readonly scheduledTasks: ScheduledCall[];
-  readonly scheduledDelays: number[];
-}
+afterEach((): void => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
 
-function createCountry(name: string): Country {
-  return {
-    id: name,
-    name,
-    flagUrl: null,
-    flagEmoji: null,
-    capital: null,
-    region: null,
-    population: null,
-    area: null,
-    languages: [],
-    currencies: [],
-    borders: [],
-    description: name,
-  };
-}
+describe('search query lifecycle', (): void => {
+  it('renders idle before any input', (): void => {
+    const { render }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup();
 
-function createSearchHarness(historyRecorder?: HistoryRecorder): SearchHarness {
-  const pendingSearches: PendingSearch[] = [];
-  const renderedStates: SearchState[] = [];
-  const selectedCountries: (Country | null)[] = [];
-  const scheduledTasks: ScheduledCall[] = [];
-  const scheduledDelays: number[] = [];
-
-  const searchPort: SearchPort = {
-    search(
-      query: string,
-      cancellationSignal: SearchCancellationSignal,
-    ): Promise<readonly Country[]> {
-      return new Promise<readonly Country[]>(
-        (
-          resolve: (countries: readonly Country[]) => void,
-          reject: (error: unknown) => void,
-        ): void => {
-          pendingSearches.push({ query, cancellationSignal, resolve, reject });
-        },
-      );
-    },
-  };
-
-  const searchView: SearchView = {
-    render(state: SearchState, selectedCountry: Country | null): void {
-      renderedStates.push(state);
-      selectedCountries.push(selectedCountry);
-    },
-  };
-
-  const createScheduledTask: SchedulerFactory = (
-    callback: () => void,
-    delayMilliseconds: number,
-  ): ScheduledTask => {
-    scheduledDelays.push(delayMilliseconds);
-
-    let isCancelled: boolean = false;
-
-    const scheduledTask: ScheduledCall = {
-      invoke(): void {
-        if (!isCancelled) {
-          callback();
-        }
-      },
-
-      cancel(): void {
-        isCancelled = true;
-      },
-
-      isCancelled(): boolean {
-        return isCancelled;
-      },
-    };
-
-    scheduledTasks.push(scheduledTask);
-
-    return scheduledTask;
-  };
-
-  const controller: SearchController = createSearchController(
-    searchPort,
-    searchView,
-    createScheduledTask,
-    historyRecorder,
-  );
-
-  return {
-    controller,
-    pendingSearches,
-    renderedStates,
-    selectedCountries,
-    scheduledTasks,
-    scheduledDelays,
-  };
-}
-
-async function resolveMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
-describe('createSearchController', (): void => {
-  it('finishes a search when the optional history recorder throws', async (): Promise<void> => {
-    const { controller, pendingSearches, renderedStates }: SearchHarness =
-      createSearchHarness({
-        recordQuery(): never {
-          throw new Error('History unavailable');
-        },
-      });
-    const countries: readonly Country[] = [createCountry('Japan')];
-
-    controller.updateSearchQuery('Japan');
-    controller.retrySearch();
-
-    expect(pendingSearches).toHaveLength(1);
-    pendingSearches[0]?.resolve(countries);
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.results,
-      query: 'Japan',
-      countries,
-    });
-
-    controller.destroy();
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
   });
 
-  it('renders idle initially and waits 300 milliseconds before searching', (): void => {
+  it('trims input and searches only after the complete debounce delay', async (): Promise<void> => {
     const {
       controller,
-      renderedStates,
-      scheduledTasks,
-      scheduledDelays,
-      pendingSearches,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+    const response: Deferred<readonly Country[]> = createDeferred();
 
-    expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
-
+    search.mockReturnValue(response.promise);
     controller.updateSearchQuery(' Japan ');
 
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.waiting,
-      query: 'Japan',
-    });
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.waiting, query: 'Japan' },
+      null,
+    );
 
-    expect(scheduledDelays).toEqual([300]);
-    expect(pendingSearches).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(299);
+    expect(search).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(search).toHaveBeenCalledExactlyOnceWith('Japan', expect.anything());
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.loading, query: 'Japan' },
+      null,
+    );
 
-    scheduledTasks[0]?.invoke();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.loading,
-      query: 'Japan',
-    });
-
-    expect(pendingSearches[0]?.query).toBe('Japan');
+    response.resolve([]);
+    await vi.advanceTimersByTimeAsync(0);
   });
 
-  it('cancels the active request immediately when a new query arrives', (): void => {
+  it('restarts debounce and searches only the latest input', async (): Promise<void> => {
+    const { controller, search }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup();
+
+    controller.updateSearchQuery('sp');
+    await vi.advanceTimersByTimeAsync(200);
+    controller.updateSearchQuery('spain');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(search).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(search).toHaveBeenCalledExactlyOnceWith('spain', expect.anything());
+  });
+
+  it('cancels the active request as soon as input changes', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
     controller.updateSearchQuery('Japan');
-    scheduledTasks[0]?.invoke();
+    await vi.advanceTimersByTimeAsync(300);
     const previousSignal: SearchCancellationSignal | undefined =
-      pendingSearches[0]?.cancellationSignal;
+      search.mock.calls[0]?.[1];
 
     controller.updateSearchQuery('Canada');
 
     expect(previousSignal?.isCancelled).toBe(true);
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.waiting,
-      query: 'Canada',
-    });
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.waiting, query: 'Canada' },
+      null,
+    );
   });
 
-  it('cancels pending work and the active search on empty input', (): void => {
+  it.each(['', '   '])(
+    'does not schedule a blank query %j',
+    async (query: string): Promise<void> => {
+      const {
+        controller,
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+
+      controller.updateSearchQuery(query);
+      controller.retrySearch();
+      await vi.runAllTimersAsync();
+
+      expect(search).not.toHaveBeenCalled();
+      expect(render).toHaveBeenLastCalledWith(
+        { status: SEARCH_STATUS.idle },
+        null,
+      );
+    },
+  );
+
+  it('clears the view and cancels pending debounce on empty input', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
     controller.updateSearchQuery('Japan');
-    scheduledTasks[0]?.invoke();
-    const activeSignal: SearchCancellationSignal | undefined =
-      pendingSearches[0]?.cancellationSignal;
+    controller.updateSearchQuery('');
+    await vi.runAllTimersAsync();
 
+    expect(search).not.toHaveBeenCalled();
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
+  });
+
+  it('cancels an active search when input is cleared', async (): Promise<void> => {
+    const {
+      controller,
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+
+    controller.updateSearchQuery('Japan');
+    await vi.advanceTimersByTimeAsync(300);
     controller.updateSearchQuery('');
 
-    expect(activeSignal?.isCancelled).toBe(true);
-    expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
-    expect(scheduledTasks[1]).toBeUndefined();
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(true);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
   });
 
-  it('renders results when the current request resolves with countries', async (): Promise<void> => {
+  it.each([{ countries: [] }, { countries: [createCountry('Japan')] }])(
+    'renders a completed search with %j',
+    async ({ countries }: { countries: readonly Country[] }): Promise<void> => {
+      const {
+        controller,
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+
+      search.mockResolvedValue(countries);
+      controller.updateSearchQuery('Japan');
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(render).toHaveBeenLastCalledWith(
+        countries.length === 0
+          ? { status: SEARCH_STATUS.empty, query: 'Japan' }
+          : { status: SEARCH_STATUS.results, query: 'Japan', countries },
+        null,
+      );
+    },
+  );
+
+  it('finishes a search even when optional history recording fails', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
-    const japan: Country = createCountry('Japan');
-
-    controller.updateSearchQuery('Japan');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.resolve([japan]);
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.results,
-      query: 'Japan',
-      countries: [japan],
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup({
+      recordQuery(): never {
+        throw new Error('History unavailable');
+      },
     });
-  });
+    const countries: readonly Country[] = [createCountry('Japan')];
 
-  it('renders empty when the current request resolves without countries', async (): Promise<void> => {
-    const {
-      controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
-
-    controller.updateSearchQuery('No Such Country');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.resolve([]);
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.empty,
-      query: 'No Such Country',
-    });
-  });
-
-  it('does not let an older request overwrite the latest query results', async (): Promise<void> => {
-    const {
-      controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
-    const japan: Country = createCountry('Japan');
-    const canada: Country = createCountry('Canada');
-
+    search.mockResolvedValue(countries);
     controller.updateSearchQuery('Japan');
-    scheduledTasks[0]?.invoke();
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.results, query: 'Japan', countries },
+      null,
+    );
+  });
+
+  it.each([false, true])(
+    'ignores stale success while the latest search has started: %s',
+    async (hasLatestStarted: boolean): Promise<void> => {
+      const {
+        controller,
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+      const staleResponse: Deferred<readonly Country[]> = createDeferred();
+      const latestResponse: Deferred<readonly Country[]> = createDeferred();
+      const countries: readonly Country[] = [createCountry('Canada')];
+
+      search
+        .mockReturnValueOnce(staleResponse.promise)
+        .mockReturnValueOnce(latestResponse.promise);
+
+      controller.updateSearchQuery('Japan');
+      await vi.advanceTimersByTimeAsync(300);
+      controller.updateSearchQuery('Canada');
+      if (hasLatestStarted) {
+        await vi.advanceTimersByTimeAsync(300);
+      }
+
+      staleResponse.resolve([createCountry('Japan')]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(render).toHaveBeenLastCalledWith(
+        {
+          status: hasLatestStarted
+            ? SEARCH_STATUS.loading
+            : SEARCH_STATUS.waiting,
+          query: 'Canada',
+        },
+        null,
+      );
+
+      await vi.advanceTimersByTimeAsync(300);
+      latestResponse.resolve(countries);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(render).toHaveBeenLastCalledWith(
+        { status: SEARCH_STATUS.results, query: 'Canada', countries },
+        null,
+      );
+    },
+  );
+
+  it('does not overwrite fresh results when an older response arrives last', async (): Promise<void> => {
+    const {
+      controller,
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+    const staleResponse: Deferred<readonly Country[]> = createDeferred();
+    const countries: readonly Country[] = [createCountry('Spain')];
+
+    search
+      .mockReturnValueOnce(staleResponse.promise)
+      .mockResolvedValueOnce(countries);
+
+    controller.updateSearchQuery('sp');
+    await vi.advanceTimersByTimeAsync(300);
+    controller.updateSearchQuery('spain');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.results, query: 'spain', countries },
+      null,
+    );
+
+    render.mockClear();
+    staleResponse.resolve([createCountry('Stale country')]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it('cancels active and scheduled work on destruction', async (): Promise<void> => {
+    const {
+      controller,
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+    const response: Deferred<readonly Country[]> = createDeferred();
+
+    search.mockReturnValue(response.promise);
+    controller.updateSearchQuery('Japan');
+    await vi.advanceTimersByTimeAsync(300);
     controller.updateSearchQuery('Canada');
-    scheduledTasks[1]?.invoke();
+    controller.destroy();
+    render.mockClear();
+    response.resolve([createCountry('Japan')]);
+    await vi.runAllTimersAsync();
 
-    pendingSearches[0]?.resolve([japan]);
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.loading,
-      query: 'Canada',
-    });
-
-    pendingSearches[1]?.resolve([canada]);
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.results,
-      query: 'Canada',
-      countries: [canada],
-    });
-  });
-
-  it('does not start a search for empty input', (): void => {
-    const {
-      controller,
-      pendingSearches,
-      scheduledTasks,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
-
-    controller.updateSearchQuery('   ');
-
-    expect(pendingSearches).toHaveLength(0);
-    expect(scheduledTasks).toHaveLength(0);
-    expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(true);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(render).not.toHaveBeenCalled();
   });
 });
 
-describe('search controller errors and retry', (): void => {
+describe('search failures and retry', (): void => {
   it.each([
     {
       error: { name: 'TimeoutError' },
@@ -351,8 +320,13 @@ describe('search controller errors and retry', (): void => {
       errorType: SEARCH_ERROR_TYPES.invalidResponse,
       statusCode: null,
     },
+    {
+      error: new TypeError('Failed to fetch'),
+      errorType: SEARCH_ERROR_TYPES.network,
+      statusCode: null,
+    },
   ])(
-    'renders classified $errorType failures',
+    'renders a classified $errorType failure',
     async ({
       error,
       errorType,
@@ -364,182 +338,152 @@ describe('search controller errors and retry', (): void => {
     }): Promise<void> => {
       const {
         controller,
-        scheduledTasks,
-        pendingSearches,
-        renderedStates,
-      }: SearchHarness = createSearchHarness();
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
+      search.mockRejectedValue(error);
       controller.updateSearchQuery('sp');
-      scheduledTasks[0]?.invoke();
-      pendingSearches[0]?.reject(error);
+      await vi.advanceTimersByTimeAsync(300);
 
-      await resolveMicrotasks();
-
-      expect(renderedStates.at(-1)).toMatchObject({
-        status: SEARCH_STATUS.error,
-        query: 'sp',
-        errorType,
-        statusCode,
-      });
+      expect(render).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: SEARCH_STATUS.error,
+          query: 'sp',
+          errorType,
+          statusCode,
+        }),
+        null,
+      );
     },
   );
 
-  it('keeps an intentional AbortError silent', async (): Promise<void> => {
+  it('never renders intentional cancellation as an error', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
+    search.mockRejectedValue({ name: 'AbortError' });
     controller.updateSearchQuery('sp');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.reject({ name: 'AbortError' });
-
-    await resolveMicrotasks();
+    await vi.advanceTimersByTimeAsync(300);
 
     expect(
-      renderedStates.some(
-        (state: SearchState): boolean => state.status === SEARCH_STATUS.error,
+      render.mock.calls.some(
+        ([state]: [SearchState, Country | null]): boolean =>
+          state.status === SEARCH_STATUS.error,
       ),
     ).toBe(false);
   });
 
-  it('retries the latest failed query immediately after the input changes', async (): Promise<void> => {
+  it('retries the latest input immediately and cancels its pending debounce', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+    const countries: readonly Country[] = [createCountry('Spain')];
+
+    search
+      .mockRejectedValueOnce(new TypeError('Offline'))
+      .mockResolvedValue(countries);
 
     controller.updateSearchQuery('sp');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.reject(new TypeError('Failed to fetch'));
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)?.status).toBe(SEARCH_STATUS.error);
-
+    await vi.advanceTimersByTimeAsync(300);
     controller.updateSearchQuery('spain');
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.waiting,
-      query: 'spain',
-    });
-
-    scheduledTasks[1]?.invoke();
-    pendingSearches[1]?.reject(new TypeError('Failed to fetch'));
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.error,
-      query: 'spain',
-    });
-
     controller.retrySearch();
+    await vi.advanceTimersByTimeAsync(0);
 
-    expect(pendingSearches).toHaveLength(3);
-    expect(pendingSearches[2]?.query).toBe('spain');
-    expect(pendingSearches[1]?.cancellationSignal.isCancelled).toBe(true);
-    expect(scheduledTasks).toHaveLength(2);
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.loading,
-      query: 'spain',
-    });
+    expect(search).toHaveBeenLastCalledWith('spain', expect.anything());
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.results, query: 'spain', countries },
+      null,
+    );
 
-    const spain: Country = createCountry('Spain');
-
-    pendingSearches[2]?.resolve([spain]);
-
-    await resolveMicrotasks();
-
-    expect(renderedStates.at(-1)).toEqual({
-      status: SEARCH_STATUS.results,
-      query: 'spain',
-      countries: [spain],
-    });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 
-  it('cancels pending debounce and the active consumer when retrying', (): void => {
-    const { controller, scheduledTasks, pendingSearches }: SearchHarness =
-      createSearchHarness();
+  it('cancels an active retry before starting the next one', async (): Promise<void> => {
+    const { controller, search }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup();
 
     controller.updateSearchQuery('sp');
-    scheduledTasks[0]?.invoke();
-    controller.updateSearchQuery('spain');
     controller.retrySearch();
-
-    expect(scheduledTasks[1]?.isCancelled()).toBe(true);
-    expect(pendingSearches[0]?.cancellationSignal.isCancelled).toBe(true);
-    expect(pendingSearches[1]?.query).toBe('spain');
-
-    scheduledTasks[1]?.invoke();
-
-    expect(pendingSearches).toHaveLength(2);
-
     controller.retrySearch();
+    await vi.runAllTimersAsync();
 
-    expect(pendingSearches[1]?.cancellationSignal.isCancelled).toBe(true);
-    expect(pendingSearches[2]?.query).toBe('spain');
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(true);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 
-  it('clears an error on empty input and ignores an empty retry', async (): Promise<void> => {
+  it('clears an error and ignores retry after input becomes blank', async (): Promise<void> => {
     const {
       controller,
-      scheduledTasks,
-      pendingSearches,
-      renderedStates,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
+    search.mockRejectedValue(new TypeError('Offline'));
     controller.updateSearchQuery('sp');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.reject(new TypeError('Failed to fetch'));
-
-    await resolveMicrotasks();
-
-    controller.updateSearchQuery('   ');
+    await vi.advanceTimersByTimeAsync(300);
+    controller.updateSearchQuery(' ');
     controller.retrySearch();
+    await vi.runAllTimersAsync();
 
-    expect(renderedStates.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
-    expect(pendingSearches).toHaveLength(1);
-    expect(scheduledTasks).toHaveLength(1);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
+
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
   it.each([false, true])(
-    'ignores stale failure when latest search started: %s',
-    async (shouldStartLatest: boolean): Promise<void> => {
+    'ignores stale failure while the latest search has started: %s',
+    async (hasLatestStarted: boolean): Promise<void> => {
       const {
         controller,
-        scheduledTasks,
-        pendingSearches,
-        renderedStates,
-      }: SearchHarness = createSearchHarness();
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+      const staleResponse: Deferred<readonly Country[]> = createDeferred();
+
+      const latestResponse: Deferred<readonly Country[]> = createDeferred();
+
+      search
+        .mockReturnValueOnce(staleResponse.promise)
+        .mockReturnValueOnce(latestResponse.promise);
 
       controller.updateSearchQuery('sp');
-      scheduledTasks[0]?.invoke();
+      await vi.advanceTimersByTimeAsync(300);
       controller.updateSearchQuery('spain');
-
-      if (shouldStartLatest) {
-        scheduledTasks[1]?.invoke();
+      if (hasLatestStarted) {
+        controller.retrySearch();
       }
 
-      pendingSearches[0]?.reject(new HttpError(503));
+      staleResponse.reject(new HttpError(503));
+      await vi.advanceTimersByTimeAsync(0);
 
-      await resolveMicrotasks();
+      expect(render).toHaveBeenLastCalledWith(
+        {
+          status: hasLatestStarted
+            ? SEARCH_STATUS.loading
+            : SEARCH_STATUS.waiting,
+          query: 'spain',
+        },
+        null,
+      );
 
-      expect(renderedStates.at(-1)).toEqual({
-        status: shouldStartLatest
-          ? SEARCH_STATUS.loading
-          : SEARCH_STATUS.waiting,
-        query: 'spain',
-      });
+      latestResponse.resolve([]);
+      controller.destroy();
+      await vi.advanceTimersByTimeAsync(0);
     },
   );
 });
 
-describe('search controller country selection', (): void => {
+describe('country selection', (): void => {
   const detailedCountry: Country = {
     ...createCountry('Israel'),
     id: 'ISR',
@@ -558,140 +502,118 @@ describe('search controller country selection', (): void => {
   };
 
   it.each([detailedCountry, partialCountry])(
-    'passes complete details for $name without another request',
+    'opens $name without another search',
     async (country: Country): Promise<void> => {
       const {
         controller,
-        pendingSearches,
-        scheduledTasks,
-        renderedStates,
-        selectedCountries,
-      }: SearchHarness = createSearchHarness();
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+      const countries: readonly Country[] = [detailedCountry, partialCountry];
 
+      search.mockResolvedValue(countries);
       controller.updateSearchQuery('country');
-      scheduledTasks[0]?.invoke();
-      pendingSearches[0]?.resolve([detailedCountry, partialCountry]);
-
-      await resolveMicrotasks();
-
+      await vi.advanceTimersByTimeAsync(300);
       controller.selectCountry(country.id);
 
-      expect(selectedCountries.at(-1)).toBe(country);
-      expect(renderedStates.at(-1)).toEqual({
-        status: SEARCH_STATUS.results,
-        query: 'country',
-        countries: [detailedCountry, partialCountry],
-      });
-
-      expect(pendingSearches).toHaveLength(1);
-      expect(scheduledTasks).toHaveLength(1);
-    },
-  );
-
-  it('closes details while retaining the same query and result snapshot', async (): Promise<void> => {
-    const {
-      controller,
-      pendingSearches,
-      scheduledTasks,
-      renderedStates,
-      selectedCountries,
-    }: SearchHarness = createSearchHarness();
-
-    controller.updateSearchQuery('Israel');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.resolve([detailedCountry]);
-
-    await resolveMicrotasks();
-
-    controller.selectCountry(detailedCountry.id);
-    const resultsBeforeClose: SearchState | undefined = renderedStates.at(-1);
-
-    controller.closeCountryDetails();
-
-    expect(selectedCountries.at(-1)).toBeNull();
-    expect(renderedStates.at(-1)).toBe(resultsBeforeClose);
-    expect(pendingSearches).toHaveLength(1);
-    expect(scheduledTasks).toHaveLength(1);
-
-    controller.selectCountry(detailedCountry.id);
-
-    expect(selectedCountries.at(-1)).toBe(detailedCountry);
-    expect(pendingSearches).toHaveLength(1);
-  });
-
-  it.each(['new query', ''])(
-    'closes selected details immediately on input %j',
-    async (nextQuery: string): Promise<void> => {
-      const {
-        controller,
-        pendingSearches,
-        scheduledTasks,
-        renderedStates,
-        selectedCountries,
-      }: SearchHarness = createSearchHarness();
-
-      controller.updateSearchQuery('Israel');
-      scheduledTasks[0]?.invoke();
-      pendingSearches[0]?.resolve([detailedCountry]);
-
-      await resolveMicrotasks();
-
-      controller.selectCountry(detailedCountry.id);
-      controller.updateSearchQuery(nextQuery);
-
-      expect(selectedCountries.at(-1)).toBeNull();
-      expect(renderedStates.at(-1)).toEqual(
-        nextQuery === ''
-          ? { status: SEARCH_STATUS.idle }
-          : { status: SEARCH_STATUS.waiting, query: nextQuery },
+      expect(render).toHaveBeenLastCalledWith(
+        { status: SEARCH_STATUS.results, query: 'country', countries },
+        country,
       );
 
-      expect(pendingSearches).toHaveLength(1);
-
-      controller.selectCountry(detailedCountry.id);
-
-      expect(selectedCountries.at(-1)).toBeNull();
+      expect(search).toHaveBeenCalledTimes(1);
     },
   );
 
-  it('selects only countries from the latest results', async (): Promise<void> => {
+  it('closes and reopens details while keeping the search results', async (): Promise<void> => {
     const {
       controller,
-      pendingSearches,
-      scheduledTasks,
-      selectedCountries,
-    }: SearchHarness = createSearchHarness();
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
+    search.mockResolvedValue([detailedCountry]);
     controller.updateSearchQuery('Israel');
-    scheduledTasks[0]?.invoke();
-    pendingSearches[0]?.resolve([detailedCountry]);
+    await vi.advanceTimersByTimeAsync(300);
+    controller.selectCountry('ISR');
+    controller.closeCountryDetails();
 
-    await resolveMicrotasks();
+    expect(render).toHaveBeenLastCalledWith(
+      {
+        status: SEARCH_STATUS.results,
+        query: 'Israel',
+        countries: [detailedCountry],
+      },
+      null,
+    );
 
-    controller.updateSearchQuery('Example');
-    scheduledTasks[1]?.invoke();
-    pendingSearches[1]?.resolve([partialCountry]);
-
-    await resolveMicrotasks();
-
-    controller.selectCountry(detailedCountry.id);
-
-    expect(selectedCountries.at(-1)).toBeNull();
-
-    controller.selectCountry(partialCountry.id);
-
-    expect(selectedCountries.at(-1)).toBe(partialCountry);
-    expect(pendingSearches).toHaveLength(2);
+    controller.selectCountry('ISR');
+    expect(render).toHaveBeenLastCalledWith(expect.anything(), detailedCountry);
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a selection command before any results exist', (): void => {
-    const { controller, selectedCountries, pendingSearches }: SearchHarness =
-      createSearchHarness();
+  it.each(['Canada', ''])(
+    'closes details when the query changes to %j',
+    async (query: string): Promise<void> => {
+      const {
+        controller,
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+
+      search.mockResolvedValue([detailedCountry]);
+      controller.updateSearchQuery('Israel');
+      await vi.advanceTimersByTimeAsync(300);
+      controller.selectCountry('ISR');
+      controller.updateSearchQuery(query);
+      controller.selectCountry('ISR');
+
+      expect(render).toHaveBeenLastCalledWith(
+        query === ''
+          ? { status: SEARCH_STATUS.idle }
+          : { status: SEARCH_STATUS.waiting, query },
+        null,
+      );
+    },
+  );
+
+  it('selects only countries in the latest results', async (): Promise<void> => {
+    const {
+      controller,
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
+
+    search
+      .mockResolvedValueOnce([detailedCountry])
+      .mockResolvedValueOnce([partialCountry]);
+
+    controller.updateSearchQuery('Israel');
+    await vi.advanceTimersByTimeAsync(300);
+    controller.updateSearchQuery('Example');
+    await vi.advanceTimersByTimeAsync(300);
+    controller.selectCountry('ISR');
+    expect(render).toHaveBeenLastCalledWith(expect.anything(), null);
+    controller.selectCountry(partialCountry.id);
+    expect(render).toHaveBeenLastCalledWith(expect.anything(), partialCountry);
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores selection before results exist', (): void => {
+    const {
+      controller,
+      search,
+      render,
+    }: ReturnType<typeof createControllerSetup> = createControllerSetup();
 
     controller.selectCountry('unknown');
     controller.closeCountryDetails();
 
-    expect(selectedCountries.at(-1)).toBeNull();
-    expect(pendingSearches).toHaveLength(0);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
+
+    expect(search).not.toHaveBeenCalled();
   });
 });

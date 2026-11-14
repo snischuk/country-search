@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
+import { createSearchCancellationSource } from '@/features/country-search/application/search-cancellation';
 import {
   HttpError,
   ValidationError,
@@ -12,474 +14,299 @@ import type {
 import type { Country } from '@/features/country-search/domain/country.type';
 import { createCachedSearchPort } from '@/features/country-search/infrastructure/cached-search.adapter';
 
-const REQUEST_TIMEOUT_MS: number = 10_000;
+import { createCountry } from '../../../support/country';
+import { createDeferred } from '../../../support/deferred';
+import type { Deferred } from '../../../support/deferred';
 
-interface TrackedCancellation extends SearchCancellationSource {
-  getSubscriberCount(): number;
-}
-
-interface RecordedRequest {
-  readonly query: string;
-  readonly signal: SearchCancellationSignal;
-  cancellationCount: number;
-  resolve(countries: readonly Country[]): void;
-  reject(error: Error): void;
-}
-
-interface SharedSearchHarness {
+function createSharedSearch(): {
   readonly cache: SearchPort;
-  readonly requests: RecordedRequest[];
+  readonly search: Mock<SearchPort['search']>;
+  readonly response: Deferred<readonly Country[]>;
+} {
+  const response: Deferred<readonly Country[]> = createDeferred();
+  const search: Mock<SearchPort['search']> = vi
+    .fn<SearchPort['search']>()
+    .mockReturnValue(response.promise);
+
+  return { cache: createCachedSearchPort({ search }), search, response };
 }
 
-interface SearchObservation {
-  status: 'pending' | 'fulfilled' | 'rejected';
-  countries: readonly Country[] | null;
-  error: unknown;
-}
-
-const activeHarnesses: SharedSearchHarness[] = [];
-
-function createCountry(name: string): Country {
-  return {
-    id: name,
-    name,
-    flagUrl: null,
-    flagEmoji: null,
-    capital: null,
-    region: null,
-    population: null,
-    area: null,
-    languages: [],
-    currencies: [],
-    borders: [],
-    description: name,
-  };
-}
-
-function createCancellationSource(): TrackedCancellation {
-  let isCancelled: boolean = false;
-  const callbacks: Set<() => void> = new Set();
-  const signal: SearchCancellationSignal = {
-    get isCancelled(): boolean {
-      return isCancelled;
-    },
-    onCancel(callback: () => void): () => void {
-      if (isCancelled) {
-        callback();
-
-        return (): void => {};
-      }
-
-      callbacks.add(callback);
-
-      return (): void => {
-        callbacks.delete(callback);
-      };
-    },
-  };
-
-  return {
-    signal,
-    cancel(): void {
-      if (isCancelled) {
-        return;
-      }
-
-      isCancelled = true;
-      callbacks.forEach((callback: () => void): void => {
-        callback();
-      });
-
-      callbacks.clear();
-    },
-    getSubscriberCount(): number {
-      return callbacks.size;
-    },
-  };
-}
-
-function observeSearch(
-  promise: Promise<readonly Country[]>,
-): SearchObservation {
-  const observation: SearchObservation = {
-    status: 'pending',
-    countries: null,
-    error: null,
-  };
-
-  void promise.then(
-    (countries: readonly Country[]): void => {
-      observation.status = 'fulfilled';
-      observation.countries = countries;
-    },
-    (error: unknown): void => {
-      observation.status = 'rejected';
-      observation.error = error;
-    },
-  );
-
-  return observation;
-}
-
-function createSharedSearchHarness(
-  shouldHonorCancellation: boolean = true,
-): SharedSearchHarness {
-  const requests: RecordedRequest[] = [];
-  const transport: SearchPort = {
-    search(
-      query: string,
-      signal: SearchCancellationSignal,
-    ): Promise<readonly Country[]> {
-      return new Promise<readonly Country[]>(
-        (
-          resolve: (countries: readonly Country[]) => void,
-          reject: (error: Error) => void,
-        ): void => {
-          let removeCancellationCallback = (): void => {};
-
-          const deadlineTimer: ReturnType<typeof setTimeout> = setTimeout(
-            (): void => {
-              request.reject(
-                new DOMException('The operation timed out.', 'TimeoutError'),
-              );
-            },
-            REQUEST_TIMEOUT_MS,
-          );
-          const request: RecordedRequest = {
-            query,
-            signal,
-            cancellationCount: 0,
-            resolve(countries: readonly Country[]): void {
-              clearTimeout(deadlineTimer);
-              removeCancellationCallback();
-              resolve(countries);
-            },
-            reject(error: Error): void {
-              clearTimeout(deadlineTimer);
-              removeCancellationCallback();
-              reject(error);
-            },
-          };
-
-          requests.push(request);
-          removeCancellationCallback = signal.onCancel((): void => {
-            request.cancellationCount++;
-            if (shouldHonorCancellation) {
-              request.reject(
-                new DOMException('The request was cancelled.', 'AbortError'),
-              );
-            }
-          });
-        },
-      );
-    },
-  };
-  const harness: SharedSearchHarness = {
-    cache: createCachedSearchPort(transport),
-    requests,
-  };
-
-  activeHarnesses.push(harness);
-
-  return harness;
-}
-
-async function resolvePendingWork(): Promise<void> {
-  await vi.advanceTimersByTimeAsync(0);
-}
-
-beforeEach((): void => {
-  vi.useFakeTimers();
-});
-
-afterEach(async (): Promise<void> => {
-  activeHarnesses.splice(0).forEach((harness: SharedSearchHarness): void => {
-    harness.requests.forEach((request: RecordedRequest): void => {
-      request.resolve([]);
-    });
-  });
-
-  await resolvePendingWork();
-  vi.useRealTimers();
-});
-
-describe('shared in-flight country searches', (): void => {
-  it('uses one normalized transport and independent promises for two callers', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const first: TrackedCancellation = createCancellationSource();
-    const second: TrackedCancellation = createCancellationSource();
+describe('shared in-flight searches', (): void => {
+  it('shares one normalized request while returning independent promises', async (): Promise<void> => {
+    const { cache, search, response }: ReturnType<typeof createSharedSearch> =
+      createSharedSearch();
+    const first: SearchCancellationSource = createSearchCancellationSource();
+    const second: SearchCancellationSource = createSearchCancellationSource();
     const countries: readonly Country[] = [createCountry('Japan')];
-    const firstPromise: Promise<readonly Country[]> = cache.search(
+    const firstResult: Promise<readonly Country[]> = cache.search(
       ' Japan ',
       first.signal,
     );
-    const secondPromise: Promise<readonly Country[]> = cache.search(
+    const secondResult: Promise<readonly Country[]> = cache.search(
       'Japan',
       second.signal,
     );
-    const firstResult: SearchObservation = observeSearch(firstPromise);
-    const secondResult: SearchObservation = observeSearch(secondPromise);
 
-    expect(firstPromise).not.toBe(secondPromise);
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.query).toBe('Japan');
-    requests[0]?.resolve(countries);
-    await resolvePendingWork();
-
-    expect(firstResult.countries).toEqual(countries);
-    expect(secondResult.countries).toEqual(countries);
-    expect(first.getSubscriberCount()).toBe(0);
-    expect(second.getSubscriberCount()).toBe(0);
+    expect(firstResult).not.toBe(secondResult);
+    expect(search).toHaveBeenCalledExactlyOnceWith('Japan', expect.anything());
+    response.resolve(countries);
+    await expect(firstResult).resolves.toEqual(countries);
+    await expect(secondResult).resolves.toEqual(countries);
     first.cancel();
     second.cancel();
-    expect(requests[0]?.cancellationCount).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(false);
   });
 
-  it('does not attach an already cancelled caller to active work', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const active: TrackedCancellation = createCancellationSource();
-    const cancelled: TrackedCancellation = createCancellationSource();
-    const activeResult: SearchObservation = observeSearch(
-      cache.search('Japan', active.signal),
+  it('rejects an already cancelled caller without joining active work', async (): Promise<void> => {
+    const { cache, search, response }: ReturnType<typeof createSharedSearch> =
+      createSharedSearch();
+    const cancelled: SearchCancellationSource =
+      createSearchCancellationSource();
+    const activeResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      createSearchCancellationSource().signal,
     );
 
     cancelled.cancel();
-    const cancelledResult: SearchObservation = observeSearch(
-      cache.search('Japan', cancelled.signal),
+    await expect(cache.search('Japan', cancelled.signal)).rejects.toMatchObject(
+      { name: 'AbortError' },
     );
 
-    await resolvePendingWork();
-
-    expect(cancelledResult.status).toBe('rejected');
-    expect(cancelledResult.error).toMatchObject({ name: 'AbortError' });
-    expect(requests).toHaveLength(1);
-    expect(requests[0]?.signal.isCancelled).toBe(false);
-    requests[0]?.resolve([]);
-    await resolvePendingWork();
-    expect(activeResult.status).toBe('fulfilled');
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(false);
+    response.resolve([]);
+    await expect(activeResult).resolves.toEqual([]);
   });
 
-  it('rejects only the cancelled caller while the other keeps the shared transport', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const first: TrackedCancellation = createCancellationSource();
-    const second: TrackedCancellation = createCancellationSource();
-    const firstResult: SearchObservation = observeSearch(
-      cache.search('Japan', first.signal),
+  it('cancels only one caller while the other receives the shared response', async (): Promise<void> => {
+    const { cache, search, response }: ReturnType<typeof createSharedSearch> =
+      createSharedSearch();
+    const first: SearchCancellationSource = createSearchCancellationSource();
+    const firstResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      first.signal,
     );
-    const secondResult: SearchObservation = observeSearch(
-      cache.search('Japan', second.signal),
+    const secondResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      createSearchCancellationSource().signal,
     );
+    const countries: readonly Country[] = [createCountry('Japan')];
 
     first.cancel();
-    await resolvePendingWork();
-
-    expect(firstResult.status).toBe('rejected');
-    expect(firstResult.error).toMatchObject({ name: 'AbortError' });
-    expect(secondResult.status).toBe('pending');
-    expect(requests[0]?.signal.isCancelled).toBe(false);
-    expect(requests[0]?.cancellationCount).toBe(0);
-    requests[0]?.resolve([createCountry('Japan')]);
-    await resolvePendingWork();
-    expect(secondResult.status).toBe('fulfilled');
-    expect(second.getSubscriberCount()).toBe(0);
+    await expect(firstResult).rejects.toMatchObject({ name: 'AbortError' });
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(false);
+    response.resolve(countries);
+    await expect(secondResult).resolves.toEqual(countries);
   });
 
-  it('aborts after the last detach and permits an immediate same-key restart', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const first: TrackedCancellation = createCancellationSource();
-    const second: TrackedCancellation = createCancellationSource();
-    const firstResult: SearchObservation = observeSearch(
-      cache.search('Japan', first.signal),
+  it('cancels transport only after the last caller leaves and permits immediate restart', async (): Promise<void> => {
+    const { cache, search, response }: ReturnType<typeof createSharedSearch> =
+      createSharedSearch();
+    const first: SearchCancellationSource = createSearchCancellationSource();
+    const second: SearchCancellationSource = createSearchCancellationSource();
+    const onTransportCancel: Mock<() => void> = vi.fn();
+    const firstResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      first.signal,
     );
-    const secondResult: SearchObservation = observeSearch(
-      cache.search('Japan', second.signal),
+    const secondResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      second.signal,
     );
 
+    search.mock.calls[0]?.[1].onCancel(onTransportCancel);
+    const cancellations: Promise<unknown> = Promise.allSettled([
+      firstResult,
+      secondResult,
+    ]);
+
     first.cancel();
+    expect(onTransportCancel).not.toHaveBeenCalled();
     second.cancel();
-    expect(requests[0]?.signal.isCancelled).toBe(true);
-    expect(requests[0]?.cancellationCount).toBe(1);
-    const restartedResult: SearchObservation = observeSearch(
-      cache.search('Japan', createCancellationSource().signal),
+    expect(onTransportCancel).toHaveBeenCalledTimes(1);
+    search.mockResolvedValueOnce([createCountry('Fresh Japan')]);
+    const restarted: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      createSearchCancellationSource().signal,
     );
 
-    expect(requests).toHaveLength(2);
-    expect(requests[1]?.signal.isCancelled).toBe(false);
-    requests[1]?.resolve([createCountry('Japan')]);
-    await resolvePendingWork();
-    expect(firstResult.status).toBe('rejected');
-    expect(secondResult.status).toBe('rejected');
-    expect(restartedResult.status).toBe('fulfilled');
-    expect(vi.getTimerCount()).toBe(0);
-  });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1]?.[1].isCancelled).toBe(false);
+    await expect(restarted).resolves.toEqual([createCountry('Fresh Japan')]);
+    await expect(cancellations).resolves.toMatchObject([
+      {
+        status: 'rejected',
+        reason: { name: 'AbortError' },
+      },
+      {
+        status: 'rejected',
+        reason: { name: 'AbortError' },
+      },
+    ]);
 
-  it('fans out a timeout to all callers and allows retry', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const first: TrackedCancellation = createCancellationSource();
-    const second: TrackedCancellation = createCancellationSource();
-    const firstResult: SearchObservation = observeSearch(
-      cache.search('Japan', first.signal),
-    );
-    const secondResult: SearchObservation = observeSearch(
-      cache.search('Japan', second.signal),
-    );
-
-    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
-
-    expect(firstResult.error).toMatchObject({ name: 'TimeoutError' });
-    expect(secondResult.error).toBe(firstResult.error);
-    expect(first.getSubscriberCount()).toBe(0);
-    expect(second.getSubscriberCount()).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
-    const retriedResult: SearchObservation = observeSearch(
-      cache.search('Japan', createCancellationSource().signal),
-    );
-
-    expect(requests).toHaveLength(2);
-    requests[1]?.resolve([]);
-    await resolvePendingWork();
-    expect(retriedResult.status).toBe('fulfilled');
+    response.resolve([]);
   });
 
   it.each([
+    new DOMException('Deadline exceeded', 'TimeoutError'),
     new HttpError(503),
     new ValidationError(),
-    new TypeError('Failed to fetch'),
+    new TypeError('Offline'),
   ])(
-    'shares a failure and starts a fresh retry: %j',
+    'shares failure %s and starts a fresh retry',
     async (error: Error): Promise<void> => {
-      const { cache, requests }: SharedSearchHarness =
-        createSharedSearchHarness();
-      const first: TrackedCancellation = createCancellationSource();
-      const second: TrackedCancellation = createCancellationSource();
-      const firstResult: SearchObservation = observeSearch(
-        cache.search('Japan', first.signal),
+      const { cache, search, response }: ReturnType<typeof createSharedSearch> =
+        createSharedSearch();
+      const first: SearchCancellationSource = createSearchCancellationSource();
+      const second: SearchCancellationSource = createSearchCancellationSource();
+      const failures: Promise<PromiseSettledResult<readonly Country[]>[]> =
+        Promise.allSettled([
+          cache.search('Japan', first.signal),
+          cache.search('Japan', second.signal),
+        ]);
+
+      response.reject(error);
+      await expect(failures).resolves.toEqual([
+        { status: 'rejected', reason: error },
+        { status: 'rejected', reason: error },
+      ]);
+
+      first.cancel();
+      second.cancel();
+      expect(search.mock.calls[0]?.[1].isCancelled).toBe(false);
+      search.mockResolvedValueOnce([]);
+      await expect(
+        cache.search('Japan', createSearchCancellationSource().signal),
+      ).resolves.toEqual([]);
+
+      expect(search).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(['success', 'failure'])(
+    'keeps replacement work after obsolete %s',
+    async (completion: string): Promise<void> => {
+      const {
+        cache,
+        search,
+        response: obsoleteResponse,
+      }: ReturnType<typeof createSharedSearch> = createSharedSearch();
+      const obsolete: SearchCancellationSource =
+        createSearchCancellationSource();
+      const obsoleteResult: Promise<readonly Country[]> = cache.search(
+        'Japan',
+        obsolete.signal,
       );
-      const secondResult: SearchObservation = observeSearch(
-        cache.search('Japan', second.signal),
+      const freshResponse: Deferred<readonly Country[]> = createDeferred();
+      const countries: readonly Country[] = [createCountry('Fresh Japan')];
+
+      obsolete.cancel();
+      await expect(obsoleteResult).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+
+      search.mockReturnValueOnce(freshResponse.promise);
+      const freshResult: Promise<readonly Country[]> = cache.search(
+        'Japan',
+        createSearchCancellationSource().signal,
       );
 
-      requests[0]?.reject(error);
-      await resolvePendingWork();
+      if (completion === 'success') {
+        obsoleteResponse.resolve([createCountry('Stale Japan')]);
+      } else {
+        obsoleteResponse.reject(new Error('Late failure'));
+      }
 
-      expect(firstResult.error).toBe(error);
-      expect(secondResult.status).toBe('rejected');
-      expect(secondResult.error).toBe(error);
-      expect(first.getSubscriberCount()).toBe(0);
-      expect(second.getSubscriberCount()).toBe(0);
-      const retriedResult: SearchObservation = observeSearch(
-        cache.search('Japan', createCancellationSource().signal),
+      await new Promise<void>((resolve: () => void): void => {
+        setImmediate(resolve);
+      });
+
+      const joiningResult: Promise<readonly Country[]> = cache.search(
+        'Japan',
+        createSearchCancellationSource().signal,
       );
 
-      expect(requests).toHaveLength(2);
-      requests[1]?.resolve([]);
-      await resolvePendingWork();
-      expect(retriedResult.status).toBe('fulfilled');
-      expect(vi.getTimerCount()).toBe(0);
+      expect(search).toHaveBeenCalledTimes(2);
+      freshResponse.resolve(countries);
+      await expect(freshResult).resolves.toEqual(countries);
+      await expect(joiningResult).resolves.toEqual(countries);
+      await expect(
+        cache.search('Japan', createSearchCancellationSource().signal),
+      ).resolves.toEqual(countries);
+
+      expect(search).toHaveBeenCalledTimes(2);
     },
   );
 
   it.each([false, true])(
-    'preserves replacement after obsolete completion (success: %s)',
-    async (shouldResolveStale: boolean): Promise<void> => {
-      const { cache, requests }: SharedSearchHarness =
-        createSharedSearchHarness(false);
-      const obsolete: TrackedCancellation = createCancellationSource();
-      const obsoleteResult: SearchObservation = observeSearch(
-        cache.search('Japan', obsolete.signal),
-      );
+    'releases caller subscriptions after failure: %s',
+    async (shouldFail: boolean): Promise<void> => {
+      const { cache, response }: ReturnType<typeof createSharedSearch> =
+        createSharedSearch();
+      const unsubscribe: Mock<() => void> = vi.fn();
+      const signal: SearchCancellationSignal = {
+        isCancelled: false,
+        onCancel: vi
+          .fn<SearchCancellationSignal['onCancel']>()
+          .mockReturnValue(unsubscribe),
+      };
+      const outcome: Promise<PromiseSettledResult<readonly Country[]>[]> =
+        Promise.allSettled([cache.search('Japan', signal)]);
 
-      obsolete.cancel();
-      await resolvePendingWork();
-      expect(obsoleteResult.status).toBe('rejected');
-      const fresh: TrackedCancellation = createCancellationSource();
-      const freshResult: SearchObservation = observeSearch(
-        cache.search('Japan', fresh.signal),
-      );
-
-      expect(requests).toHaveLength(2);
-
-      if (shouldResolveStale) {
-        requests[0]?.resolve([createCountry('Stale result')]);
+      if (shouldFail) {
+        response.reject(new HttpError(503));
       } else {
-        requests[0]?.reject(new Error('Late failure'));
+        response.resolve([]);
       }
 
-      await resolvePendingWork();
-      const joiningResult: SearchObservation = observeSearch(
-        cache.search('Japan', createCancellationSource().signal),
-      );
+      await outcome;
 
-      expect(requests).toHaveLength(2);
-      expect(joiningResult.status).toBe('pending');
-      const freshCountries: readonly Country[] = [
-        createCountry('Fresh result'),
-      ];
-
-      requests[1]?.resolve(freshCountries);
-      await resolvePendingWork();
-      expect(freshResult.countries).toEqual(freshCountries);
-      expect(joiningResult.countries).toEqual(freshCountries);
-      const cachedResult: SearchObservation = observeSearch(
-        cache.search('Japan', createCancellationSource().signal),
-      );
-
-      await resolvePendingWork();
-      expect(cachedResult.countries).toEqual(freshCountries);
-      expect(requests).toHaveLength(2);
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
     },
   );
 
-  it('rejects a cancelled caller even when a completed result exists', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const firstResult: SearchObservation = observeSearch(
-      cache.search('Japan', createCancellationSource().signal),
-    );
+  it('rejects a cancelled caller even when a completed result is cached', async (): Promise<void> => {
+    const { cache, response, search }: ReturnType<typeof createSharedSearch> =
+      createSharedSearch();
+    const cancelled: SearchCancellationSource =
+      createSearchCancellationSource();
 
-    requests[0]?.resolve([]);
-    await resolvePendingWork();
-    expect(firstResult.status).toBe('fulfilled');
-    const cancelled: TrackedCancellation = createCancellationSource();
-
+    response.resolve([]);
+    await cache.search('Japan', createSearchCancellationSource().signal);
     cancelled.cancel();
-    const cancelledResult: SearchObservation = observeSearch(
-      cache.search('Japan', cancelled.signal),
+
+    await expect(cache.search('Japan', cancelled.signal)).rejects.toMatchObject(
+      { name: 'AbortError' },
     );
 
-    await resolvePendingWork();
-    expect(cancelledResult.error).toMatchObject({ name: 'AbortError' });
-    expect(requests).toHaveLength(1);
-    expect(cancelled.getSubscriberCount()).toBe(0);
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps different query transports and cancellation independent', async (): Promise<void> => {
-    const { cache, requests }: SharedSearchHarness =
-      createSharedSearchHarness();
-    const japan: TrackedCancellation = createCancellationSource();
-    const canada: TrackedCancellation = createCancellationSource();
-    const japanResult: SearchObservation = observeSearch(
-      cache.search('Japan', japan.signal),
-    );
-    const canadaResult: SearchObservation = observeSearch(
-      cache.search('Canada', canada.signal),
+  it('keeps cancellation independent for different query keys', async (): Promise<void> => {
+    const {
+      cache,
+      search,
+      response: japanResponse,
+    }: ReturnType<typeof createSharedSearch> = createSharedSearch();
+    const japan: SearchCancellationSource = createSearchCancellationSource();
+    const canadaResponse: Deferred<readonly Country[]> = createDeferred();
+    const japanResult: Promise<readonly Country[]> = cache.search(
+      'Japan',
+      japan.signal,
     );
 
-    expect(requests).toHaveLength(2);
+    search.mockReturnValueOnce(canadaResponse.promise);
+    const canadaResult: Promise<readonly Country[]> = cache.search(
+      'Canada',
+      createSearchCancellationSource().signal,
+    );
+
     japan.cancel();
-    expect(requests[1]?.signal.isCancelled).toBe(false);
-    requests[1]?.resolve([createCountry('Canada')]);
-    await resolvePendingWork();
-    expect(japanResult.status).toBe('rejected');
-    expect(canadaResult.status).toBe('fulfilled');
-    expect(japan.getSubscriberCount()).toBe(0);
-    expect(canada.getSubscriberCount()).toBe(0);
-    expect(vi.getTimerCount()).toBe(0);
+    await expect(japanResult).rejects.toMatchObject({ name: 'AbortError' });
+    expect(search.mock.calls[1]?.[1].isCancelled).toBe(false);
+    canadaResponse.resolve([createCountry('Canada')]);
+    await expect(canadaResult).resolves.toEqual([createCountry('Canada')]);
+    japanResponse.resolve([]);
+    expect(search).toHaveBeenCalledTimes(2);
   });
 });

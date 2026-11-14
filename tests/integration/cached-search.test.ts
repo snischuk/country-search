@@ -1,352 +1,284 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import {
   SEARCH_ERROR_TYPES,
   SEARCH_STATUS,
-  createBrowserTimerDriver,
-  createDebounceSchedulerFactory,
-  createSearchController,
-  searchCountries,
+  createCachedSearchPort,
+  createSearchCountriesAdapter,
 } from '@/features/country-search';
-import type {
-  SearchController,
-  SearchPort,
-  SearchState,
-  SearchView,
-} from '@/features/country-search';
-import { createCachedSearchPort } from '@/features/country-search/infrastructure/cached-search.adapter';
+import type { SearchPort } from '@/features/country-search';
 
-interface PendingHttpRequest {
-  readonly query: string;
-  readonly signal: AbortSignal;
-  abortCount: number;
-  resolve(payload: readonly unknown[], statusCode?: number): void;
-  reject(error: Error): void;
-}
-
-interface ControllerProbe {
-  readonly controller: SearchController;
-  readonly states: SearchState[];
-}
-
-interface CachedSearchSetup {
-  readonly requests: PendingHttpRequest[];
-  readonly controllers: ControllerProbe[];
-  createController(): ControllerProbe;
-}
-
-const activeSetups: CachedSearchSetup[] = [];
-
-function createCachedSearchSetup(
-  shouldHonorAbort: boolean = true,
-): CachedSearchSetup {
-  const requests: PendingHttpRequest[] = [];
-  const controllers: ControllerProbe[] = [];
-
-  vi.spyOn(globalThis, 'fetch').mockImplementation(
-    (input: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
-      const url: string =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : input.url;
-
-      const signal: AbortSignal | null | undefined = options?.signal;
-
-      if (!signal) {
-        throw new Error('Transport must provide a signal.');
-      }
-
-      const requestSignal: AbortSignal = signal;
-
-      return new Promise<Response>(
-        (
-          resolve: (response: Response) => void,
-          reject: (error: Error) => void,
-        ): void => {
-          const request: PendingHttpRequest = {
-            query: decodeURIComponent(
-              new URL(url).pathname.split('/').at(-1) ?? '',
-            ),
-            signal: requestSignal,
-            abortCount: 0,
-            resolve(
-              payload: readonly unknown[],
-              statusCode: number = 200,
-            ): void {
-              requestSignal.removeEventListener('abort', abortRequest);
-              resolve(
-                new Response(JSON.stringify(payload), { status: statusCode }),
-              );
-            },
-            reject(error: Error): void {
-              requestSignal.removeEventListener('abort', abortRequest);
-              reject(error);
-            },
-          };
-
-          function abortRequest(): void {
-            request.abortCount++;
-            if (shouldHonorAbort) {
-              request.reject(new DOMException('Cancelled', 'AbortError'));
-            }
-          }
-
-          requests.push(request);
-          if (requestSignal.aborted) {
-            abortRequest();
-          } else {
-            requestSignal.addEventListener('abort', abortRequest, {
-              once: true,
-            });
-          }
-        },
-      );
-    },
-  );
-
-  const transport: SearchPort = { search: searchCountries };
-  const cache: SearchPort = createCachedSearchPort(transport);
-  const setup: CachedSearchSetup = {
-    requests,
-    controllers,
-    createController(): ControllerProbe {
-      const states: SearchState[] = [];
-      const view: SearchView = {
-        render(state: SearchState): void {
-          states.push(state);
-        },
-      };
-      const controller: SearchController = createSearchController(
-        cache,
-        view,
-        createDebounceSchedulerFactory(createBrowserTimerDriver()),
-      );
-      const probe: ControllerProbe = { controller, states };
-
-      controllers.push(probe);
-
-      return probe;
-    },
-  };
-
-  activeSetups.push(setup);
-
-  return setup;
-}
-
-async function resolvePendingWork(): Promise<void> {
-  await vi.advanceTimersByTimeAsync(0);
-}
+import { createDeferred } from '../support/deferred';
+import type { Deferred } from '../support/deferred';
+import {
+  createJsonResponse,
+  getRequestSignal,
+  waitForAbort,
+} from '../support/http';
+import { createControllerSetup } from '../support/search-controller';
 
 beforeEach((): void => {
   vi.useFakeTimers();
-  vi.stubGlobal('window', {
-    setTimeout: globalThis.setTimeout,
-    clearTimeout: globalThis.clearTimeout,
-  });
 });
 
-afterEach(async (): Promise<void> => {
-  activeSetups.splice(0).forEach((setup: CachedSearchSetup): void => {
-    setup.controllers.forEach((probe: ControllerProbe): void => {
-      probe.controller.destroy();
-    });
-
-    setup.requests.forEach((request: PendingHttpRequest): void => {
-      request.resolve([]);
-    });
-  });
-
-  await resolvePendingWork();
+afterEach((): void => {
+  vi.clearAllTimers();
   vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
-describe('controller through completed cache and HTTP transport', (): void => {
-  it('reuses the mapped result after another query without another HTTP request', async (): Promise<void> => {
-    const setup: CachedSearchSetup = createCachedSearchSetup();
-    const { controller, states }: ControllerProbe = setup.createController();
+describe('controller, cache and HTTP integration', (): void => {
+  it('reuses mapped countries after another query without another fetch', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        createJsonResponse([{ name: 'Japan', capital: 'Tokyo' }]),
+      )
+      .mockResolvedValueOnce(createJsonResponse([{ name: 'Canada' }]));
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
+    );
+    const { controller, render }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
 
     controller.updateSearchQuery('Japan');
     await vi.advanceTimersByTimeAsync(300);
-    setup.requests[0]?.resolve([{ name: 'Japan', capital: 'Tokyo' }]);
-    await resolvePendingWork();
     controller.updateSearchQuery('Canada');
     await vi.advanceTimersByTimeAsync(300);
-    setup.requests[1]?.resolve([{ name: 'Canada' }]);
-    await resolvePendingWork();
     controller.updateSearchQuery(' Japan ');
     await vi.advanceTimersByTimeAsync(300);
 
-    expect(setup.requests).toHaveLength(2);
-    expect(states.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.results,
-      query: 'Japan',
-      countries: [{ name: 'Japan', capital: 'Tokyo' }],
-    });
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: SEARCH_STATUS.results,
+        query: 'Japan',
+        countries: [
+          expect.objectContaining({ name: 'Japan', capital: 'Tokyo' }),
+        ],
+      }),
+      null,
+    );
 
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('caches HTTP 404 as an empty result without a repeated fetch', async (): Promise<void> => {
-    const setup: CachedSearchSetup = createCachedSearchSetup();
-    const { controller, states }: ControllerProbe = setup.createController();
+  it('caches HTTP 404 as an empty result', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('not JSON', { status: 404 }));
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
+    );
+    const { controller, render }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
 
     controller.updateSearchQuery('missing');
     await vi.advanceTimersByTimeAsync(300);
-    setup.requests[0]?.resolve([], 404);
-    await resolvePendingWork();
     controller.updateSearchQuery(' missing ');
     await vi.advanceTimersByTimeAsync(300);
 
-    expect(setup.requests).toHaveLength(1);
-    expect(states.at(-1)).toEqual({
-      status: SEARCH_STATUS.empty,
-      query: 'missing',
-    });
-
-    expect(
-      states.some(
-        (state: SearchState): boolean => state.status === SEARCH_STATUS.error,
-      ),
-    ).toBe(false);
+    expect(fetchRequest).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.empty, query: 'missing' },
+      null,
+    );
   });
 
-  it('keeps the shared HTTP request alive when only one controller clears', async (): Promise<void> => {
-    const setup: CachedSearchSetup = createCachedSearchSetup();
-    const first: ControllerProbe = setup.createController();
-    const second: ControllerProbe = setup.createController();
+  it('keeps shared HTTP work alive when one controller clears its input', async (): Promise<void> => {
+    const response: Deferred<Response> = createDeferred();
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockReturnValue(response.promise);
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
+    );
+    const first: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
+    const second: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
 
     first.controller.updateSearchQuery('Japan');
     second.controller.updateSearchQuery(' Japan ');
     await vi.advanceTimersByTimeAsync(300);
-
-    expect(setup.requests).toHaveLength(1);
     first.controller.updateSearchQuery('');
-    expect(setup.requests[0]?.signal.aborted).toBe(false);
-    expect(first.states.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
-    expect(second.states.at(-1)).toEqual({
-      status: SEARCH_STATUS.loading,
-      query: 'Japan',
-    });
 
-    setup.requests[0]?.resolve([{ name: 'Japan' }]);
-    await resolvePendingWork();
-    expect(second.states.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.results,
-      query: 'Japan',
-    });
+    expect(fetchRequest).toHaveBeenCalledTimes(1);
+    expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    expect(second.render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.loading, query: 'Japan' },
+      null,
+    );
 
-    expect(first.states.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
-    expect(setup.requests[0]?.abortCount).toBe(0);
+    response.resolve(createJsonResponse([{ name: 'Japan' }]));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(first.render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
+
+    expect(second.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: SEARCH_STATUS.results,
+        query: 'Japan',
+      }),
+      null,
+    );
+
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('aborts the last consumer immediately and restarts the same key before old rejection settles', async (): Promise<void> => {
-    const setup: CachedSearchSetup = createCachedSearchSetup();
-    const first: ControllerProbe = setup.createController();
-    const second: ControllerProbe = setup.createController();
+  it('aborts the last consumer immediately and allows a same-key restart', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(
+        (_input: RequestInfo | URL, options?: RequestInit): Promise<Response> =>
+          waitForAbort(getRequestSignal(options)),
+      )
+      .mockResolvedValueOnce(createJsonResponse([{ name: 'Fresh Japan' }]));
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
+    );
+    const first: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
+    const second: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
 
     first.controller.updateSearchQuery('Japan');
     second.controller.updateSearchQuery('Japan');
     await vi.advanceTimersByTimeAsync(300);
     first.controller.updateSearchQuery('');
+    expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
     second.controller.updateSearchQuery('');
+    expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    first.controller.searchFromHistory('Japan');
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(0);
 
-    expect(setup.requests[0]?.signal.aborted).toBe(true);
-    expect(setup.requests[0]?.abortCount).toBe(1);
-    first.controller.updateSearchQuery('Japan');
-    first.controller.retrySearch();
-    expect(setup.requests).toHaveLength(2);
-    expect(setup.requests[1]?.signal.aborted).toBe(false);
-    setup.requests[1]?.resolve([{ name: 'Fresh Japan' }]);
-    await resolvePendingWork();
-    expect(first.states.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.results,
-      countries: [{ name: 'Fresh Japan' }],
-    });
+    expect(first.render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: SEARCH_STATUS.results,
+        countries: [expect.objectContaining({ name: 'Fresh Japan' })],
+      }),
+      null,
+    );
 
-    expect(second.states.at(-1)).toEqual({ status: SEARCH_STATUS.idle });
+    expect(second.render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.idle },
+      null,
+    );
+
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each([false, true])(
-    'keeps new same-key work after stale HTTP completion (success: %s)',
-    async (shouldResolveStale: boolean): Promise<void> => {
-      const setup: CachedSearchSetup = createCachedSearchSetup(false);
-      const first: ControllerProbe = setup.createController();
+  it.each(['success', 'failure'])(
+    'keeps a replacement request after stale HTTP %s',
+    async (completion: string): Promise<void> => {
+      const staleResponse: Deferred<Response> = createDeferred();
+      const freshResponse: Deferred<Response> = createDeferred();
+      const fetchRequest: Mock<typeof fetch> = vi
+        .spyOn(globalThis, 'fetch')
+        .mockReturnValueOnce(staleResponse.promise)
+        .mockReturnValueOnce(freshResponse.promise);
+      const cache: SearchPort = createCachedSearchPort(
+        createSearchCountriesAdapter(),
+      );
+      const first: ReturnType<typeof createControllerSetup> =
+        createControllerSetup(undefined, cache);
 
       first.controller.updateSearchQuery('Japan');
       await vi.advanceTimersByTimeAsync(300);
       first.controller.updateSearchQuery('');
-      first.controller.updateSearchQuery('Japan');
-      first.controller.retrySearch();
-      expect(setup.requests).toHaveLength(2);
-      expect(setup.requests[0]?.signal.aborted).toBe(true);
-      if (shouldResolveStale) {
-        setup.requests[0]?.resolve([{ name: 'Stale country' }]);
+      first.controller.searchFromHistory('Japan');
+
+      expect(fetchRequest).toHaveBeenCalledTimes(2);
+      expect(fetchRequest.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      if (completion === 'success') {
+        staleResponse.resolve(createJsonResponse([{ name: 'Stale country' }]));
       } else {
-        setup.requests[0]?.reject(new TypeError('Late network failure'));
+        staleResponse.reject(new TypeError('Late network failure'));
       }
 
-      await resolvePendingWork();
-      expect(first.states.at(-1)).toEqual({
-        status: SEARCH_STATUS.loading,
-        query: 'Japan',
-      });
+      await vi.advanceTimersByTimeAsync(0);
 
-      const second: ControllerProbe = setup.createController();
+      expect(first.render).toHaveBeenLastCalledWith(
+        { status: SEARCH_STATUS.loading, query: 'Japan' },
+        null,
+      );
 
-      second.controller.updateSearchQuery('Japan');
-      await vi.advanceTimersByTimeAsync(300);
-      expect(setup.requests).toHaveLength(2);
-      setup.requests[1]?.resolve([{ name: 'Fresh country' }]);
-      await resolvePendingWork();
-      expect(first.states.at(-1)).toMatchObject({
-        status: SEARCH_STATUS.results,
-        countries: [{ name: 'Fresh country' }],
-      });
+      const second: ReturnType<typeof createControllerSetup> =
+        createControllerSetup(undefined, cache);
 
-      expect(second.states.at(-1)).toMatchObject({
-        status: SEARCH_STATUS.results,
-        countries: [{ name: 'Fresh country' }],
-      });
+      second.controller.searchFromHistory('Japan');
+      expect(fetchRequest).toHaveBeenCalledTimes(2);
+      freshResponse.resolve(createJsonResponse([{ name: 'Fresh country' }]));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(first.render).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: SEARCH_STATUS.results,
+          countries: [expect.objectContaining({ name: 'Fresh country' })],
+        }),
+        null,
+      );
+
+      expect(second.render).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: SEARCH_STATUS.results,
+          countries: [expect.objectContaining({ name: 'Fresh country' })],
+        }),
+        null,
+      );
 
       first.controller.retrySearch();
-      await resolvePendingWork();
-      expect(setup.requests).toHaveLength(2);
-      expect(first.states.at(-1)).toMatchObject({
-        status: SEARCH_STATUS.results,
-        countries: [{ name: 'Fresh country' }],
-      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchRequest).toHaveBeenCalledTimes(2);
+      expect(first.render).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: SEARCH_STATUS.results,
+          countries: [expect.objectContaining({ name: 'Fresh country' })],
+        }),
+        null,
+      );
 
       expect(vi.getTimerCount()).toBe(0);
     },
   );
 
-  it('does not cache a network failure and lets retry recover through HTTP', async (): Promise<void> => {
-    const setup: CachedSearchSetup = createCachedSearchSetup();
-    const { controller, states }: ControllerProbe = setup.createController();
+  it('recovers from an uncached network failure through retry', async (): Promise<void> => {
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('Offline'))
+      .mockResolvedValueOnce(createJsonResponse([{ name: 'Japan' }]));
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
+    );
+    const { controller, render }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(undefined, cache);
 
     controller.updateSearchQuery('Japan');
     await vi.advanceTimersByTimeAsync(300);
-    setup.requests[0]?.reject(new TypeError('Failed to fetch'));
-    await resolvePendingWork();
-    expect(states.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.error,
-      errorType: SEARCH_ERROR_TYPES.network,
-    });
+    expect(render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: SEARCH_STATUS.error,
+        errorType: SEARCH_ERROR_TYPES.network,
+      }),
+      null,
+    );
 
     controller.retrySearch();
-    expect(setup.requests).toHaveLength(2);
-    setup.requests[1]?.resolve([{ name: 'Japan' }]);
-    await resolvePendingWork();
-    expect(states.at(-1)).toMatchObject({
-      status: SEARCH_STATUS.results,
-      countries: [{ name: 'Japan' }],
-    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(render).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: SEARCH_STATUS.results,
+        countries: [expect.objectContaining({ name: 'Japan' })],
+      }),
+      null,
+    );
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

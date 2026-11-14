@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { debounce } from '@/features/country-search/infrastructure/scheduling/debounce';
 import type {
@@ -6,16 +7,15 @@ import type {
   TimerDriver,
 } from '@/features/country-search/infrastructure/scheduling/debounce';
 
-const TIMER_DRIVER: TimerDriver<ReturnType<typeof setTimeout>> = {
+const timerDriver: TimerDriver<ReturnType<typeof setTimeout>> = {
   scheduleTimeout(
     callback: () => void,
     delayMilliseconds: number,
   ): ReturnType<typeof setTimeout> {
     return setTimeout(callback, delayMilliseconds);
   },
-
-  cancelTimeout(timerId: ReturnType<typeof setTimeout>): void {
-    clearTimeout(timerId);
+  cancelTimeout(timerHandle: ReturnType<typeof setTimeout>): void {
+    clearTimeout(timerHandle);
   },
 };
 
@@ -24,94 +24,91 @@ beforeEach((): void => {
 });
 
 afterEach((): void => {
+  vi.clearAllTimers();
   vi.useRealTimers();
 });
 
 describe('debounce', (): void => {
-  it('waits for the whole delay and preserves the latest arguments', (): void => {
-    const receivedQueries: string[] = [];
-    const scheduleTimeout: ReturnType<typeof vi.spyOn> = vi.spyOn(
-      TIMER_DRIVER,
-      'scheduleTimeout',
-    );
-    const debouncedCallback: Debounced<[string]> = debounce(
-      (query: string): void => {
-        receivedQueries.push(query);
-      },
-      300,
-      TIMER_DRIVER,
-    );
+  it('supports the two-argument task contract without a supplied timer driver', (): void => {
+    const onSearch: Mock<(query: string) => void> = vi.fn();
+    const delayedSearch: Debounced<[string]> = debounce(onSearch, 300);
 
-    debouncedCallback('Japan');
-
-    expect(scheduleTimeout).toHaveBeenCalledOnce();
-    vi.advanceTimersByTime(299);
-    expect(receivedQueries).toEqual([]);
-    vi.advanceTimersByTime(1);
-    expect(receivedQueries).toEqual(['Japan']);
-  });
-
-  it('restarts the delay after another call', (): void => {
-    const receivedQueries: string[] = [];
-    const debouncedCallback: Debounced<[string]> = debounce(
-      (query: string): void => {
-        receivedQueries.push(query);
-      },
-      300,
-      TIMER_DRIVER,
-    );
-
-    debouncedCallback('sp');
+    delayedSearch('sp');
     vi.advanceTimersByTime(200);
-    debouncedCallback('spain');
+    delayedSearch('spain');
     vi.advanceTimersByTime(299);
-    expect(receivedQueries).toEqual([]);
+    expect(onSearch).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(receivedQueries).toEqual(['spain']);
-  });
-
-  it('cancels pending work and can schedule again afterwards', (): void => {
-    let callbackCallCount: number = 0;
-    const debouncedCallback: Debounced<[]> = debounce(
-      (): void => {
-        callbackCallCount += 1;
-      },
-      300,
-      TIMER_DRIVER,
-    );
-
-    debouncedCallback();
-    debouncedCallback.cancel();
-    debouncedCallback.cancel();
-    vi.advanceTimersByTime(1000);
-    expect(callbackCallCount).toBe(0);
+    expect(onSearch).toHaveBeenCalledExactlyOnceWith('spain');
+    delayedSearch('Japan');
+    delayedSearch.cancel();
+    vi.runAllTimers();
+    expect(onSearch).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
-    debouncedCallback();
-    vi.advanceTimersByTime(300);
-    expect(callbackCallCount).toBe(1);
   });
 
-  it('keeps separate instances independent', (): void => {
-    const invokedCallbacks: string[] = [];
-    const firstDebouncedCallback: Debounced<[]> = debounce(
-      (): void => {
-        invokedCallbacks.push('first');
-      },
+  it('waits for the entire delay before passing arguments to the callback', (): void => {
+    const onSearch: Mock<(query: string, page: number) => void> = vi.fn();
+    const delayedSearch: Debounced<[string, number]> = debounce(
+      onSearch,
       300,
-      TIMER_DRIVER,
-    );
-    const secondDebouncedCallback: Debounced<[]> = debounce(
-      (): void => {
-        invokedCallbacks.push('second');
-      },
-      300,
-      TIMER_DRIVER,
+      timerDriver,
     );
 
-    firstDebouncedCallback();
-    secondDebouncedCallback();
-    firstDebouncedCallback.cancel();
+    delayedSearch('Japan', 2);
+    vi.advanceTimersByTime(299);
+    expect(onSearch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onSearch).toHaveBeenCalledExactlyOnceWith('Japan', 2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('resets the timer and retains only the latest arguments', (): void => {
+    const onSearch: Mock<(query: string) => void> = vi.fn();
+    const delayedSearch: Debounced<[string]> = debounce(
+      onSearch,
+      300,
+      timerDriver,
+    );
+
+    delayedSearch('sp');
+    vi.advanceTimersByTime(200);
+    delayedSearch('spain');
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(299);
+    expect(onSearch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onSearch).toHaveBeenCalledExactlyOnceWith('spain');
+  });
+
+  it('allows repeated cancellation and can schedule again', (): void => {
+    const onSearch: Mock<() => void> = vi.fn();
+    const delayedSearch: Debounced<[]> = debounce(onSearch, 300, timerDriver);
+
+    delayedSearch.cancel();
+    delayedSearch();
+    delayedSearch.cancel();
+    delayedSearch.cancel();
+    vi.advanceTimersByTime(1000);
+    expect(onSearch).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    delayedSearch();
     vi.advanceTimersByTime(300);
-    expect(invokedCallbacks).toEqual(['second']);
+    expect(onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps separate debounce instances independent', (): void => {
+    const onFirstSearch: Mock<() => void> = vi.fn();
+    const onSecondSearch: Mock<() => void> = vi.fn();
+    const first: Debounced<[]> = debounce(onFirstSearch, 300, timerDriver);
+    const second: Debounced<[]> = debounce(onSecondSearch, 300, timerDriver);
+
+    first();
+    second();
+    first.cancel();
+    vi.advanceTimersByTime(300);
+
+    expect(onFirstSearch).not.toHaveBeenCalled();
+    expect(onSecondSearch).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
 import {
   getBorderCountryName,
   getCountryResultLabel,
@@ -8,18 +10,26 @@ import {
 
 describe('country search feedback', (): void => {
   it.each([
-    [0, '0 countries'],
-    [1, '1 country'],
-    [3, '3 countries'],
+    { countryCount: 0, label: '0 countries' },
+    { countryCount: 1, label: '1 country' },
+    { countryCount: 3, label: '3 countries' },
   ])(
-    'formats %i matches as %s',
-    (countryCount: number, label: string): void => {
+    'formats $countryCount matches as $label',
+    ({
+      countryCount,
+      label,
+    }: {
+      countryCount: number;
+      label: string;
+    }): void => {
       expect(getCountryResultLabel(countryCount)).toBe(label);
     },
   );
 
-  it('offers a next step when a search has no matches', (): void => {
-    expect(getStatusMessage({ status: 'empty', query: 'qwerty' })).toContain(
+  it('offers a next step when no countries match', (): void => {
+    const state: SearchState = { status: SEARCH_STATUS.empty, query: 'qwerty' };
+
+    expect(getStatusMessage(state)).toContain(
       'Check the spelling or try a shorter name.',
     );
   });
@@ -27,19 +37,22 @@ describe('country search feedback', (): void => {
 
 describe('border country names', (): void => {
   it.each([
-    ['DEU', 'Germany'],
-    ['NAM', 'Namibia'],
-    ['ZMB', 'Zambia'],
-    ['JP', 'Japan'],
-    ['fra', 'France'],
-  ])('displays %s as %s', (countryCode: string, countryName: string): void => {
-    expect(getBorderCountryName(countryCode)).toBe(countryName);
-  });
+    { code: 'DEU', name: 'Germany' },
+    { code: 'NAM', name: 'Namibia' },
+    { code: 'ZMB', name: 'Zambia' },
+    { code: 'JP', name: 'Japan' },
+    { code: 'fra', name: 'France' },
+  ])(
+    'displays $code as $name',
+    ({ code, name }: { code: string; name: string }): void => {
+      expect(getBorderCountryName(code)).toBe(name);
+    },
+  );
 
   it.each(['XYZ', 'Not a code', '', '<script>', '__proto__'])(
-    'preserves an unknown code safely: %s',
-    (countryCode: string): void => {
-      expect(getBorderCountryName(countryCode)).toBe(countryCode);
+    'preserves an unknown code safely: %j',
+    (code: string): void => {
+      expect(getBorderCountryName(code)).toBe(code);
     },
   );
 });

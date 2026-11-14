@@ -1,55 +1,59 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { localStorageService } from '@/shared/infrastructure/storage/local-storage.adapter';
 
-afterEach((): void => {
-  vi.unstubAllGlobals();
-});
-
 describe('localStorageService', (): void => {
-  it('reads a string from the supplied key', (): void => {
-    const getItem: ReturnType<typeof vi.fn> = vi.fn((): string => 'saved text');
+  it.each(['saved text', null])(
+    'returns stored text or a missing value: %j',
+    (text: string | null): void => {
+      const getItem: Mock<(key: string) => string | null> = vi
+        .fn()
+        .mockReturnValue(text);
 
-    vi.stubGlobal('localStorage', { getItem });
+      vi.stubGlobal('localStorage', { getItem });
 
-    expect(localStorageService.getItem('example')).toBe('saved text');
-    expect(getItem).toHaveBeenCalledWith('example');
-  });
+      expect(localStorageService.getItem('example')).toBe(text);
+      expect(getItem).toHaveBeenCalledExactlyOnceWith('example');
+    },
+  );
 
-  it('returns null for a missing key', (): void => {
-    vi.stubGlobal('localStorage', { getItem: (): null => null });
-
-    expect(localStorageService.getItem('missing')).toBeNull();
-  });
-
-  it('writes strings without serializing them', (): void => {
-    const setItem: ReturnType<typeof vi.fn> = vi.fn();
+  it('passes a key and plain text to browser storage', (): void => {
+    const setItem: Mock<(key: string, text: string) => void> = vi.fn();
 
     vi.stubGlobal('localStorage', { setItem });
 
     expect(localStorageService.setItem('example', 'plain text')).toBe(true);
-    expect(setItem).toHaveBeenCalledWith('example', 'plain text');
+    expect(setItem).toHaveBeenCalledExactlyOnceWith('example', 'plain text');
   });
 
   it('removes only the supplied key', (): void => {
-    const removeItem: ReturnType<typeof vi.fn> = vi.fn();
+    const removeItem: Mock<(key: string) => void> = vi.fn();
 
     vi.stubGlobal('localStorage', { removeItem });
 
     expect(localStorageService.removeItem('example')).toBe(true);
-    expect(removeItem).toHaveBeenCalledWith('example');
+    expect(removeItem).toHaveBeenCalledExactlyOnceWith('example');
   });
 
-  it('reports denied reads, writes and removals without throwing', (): void => {
-    function rejectStorageAccess(): never {
+  it('reports denied browser operations without throwing', (): void => {
+    function rejectAccess(): never {
       throw new Error('Storage denied');
     }
 
     vi.stubGlobal('localStorage', {
-      getItem: rejectStorageAccess,
-      setItem: rejectStorageAccess,
-      removeItem: rejectStorageAccess,
+      getItem: rejectAccess,
+      setItem: rejectAccess,
+      removeItem: rejectAccess,
     });
+
+    expect(localStorageService.getItem('example')).toBeNull();
+    expect(localStorageService.setItem('example', 'text')).toBe(false);
+    expect(localStorageService.removeItem('example')).toBe(false);
+  });
+
+  it('handles an unavailable localStorage global', (): void => {
+    vi.stubGlobal('localStorage', undefined);
 
     expect(localStorageService.getItem('example')).toBeNull();
     expect(localStorageService.setItem('example', 'text')).toBe(false);

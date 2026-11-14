@@ -1,135 +1,115 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { createHistoryService } from '@/services/search-history/application/history-service';
 import { createLocalStorageHistoryAdapter } from '@/services/search-history/infrastructure/local-storage-history.adapter';
+import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
+
+import { createMemoryStorage } from '../../../support/storage';
 
 const STORAGE_KEY: string = 'country-search.history.v1';
 
-function createBrowserStorage(): Storage {
-  const entries: Map<string, string> = new Map();
-
-  return {
-    length: 0,
-    clear: (): void => entries.clear(),
-    getItem: (key: string): string | null => entries.get(key) ?? null,
-    key: (index: number): string | null => [...entries.keys()][index] ?? null,
-    removeItem: (key: string): void => {
-      entries.delete(key);
-    },
-    setItem: (key: string, value: string): void => {
-      entries.set(key, value);
-    },
-  };
-}
-
-describe('createLocalStorageHistoryAdapter', (): void => {
-  let browserStorage: Storage;
-
-  beforeEach((): void => {
-    browserStorage = createBrowserStorage();
-    vi.stubGlobal('localStorage', browserStorage);
-  });
-
+describe('history storage serialization', (): void => {
   it('loads query strings from the versioned DTO', (): void => {
-    browserStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ version: 1, queries: ['Japan', 'Canada'] }),
-    );
+    const storage: KeyValueStorage = createMemoryStorage();
 
-    expect(createLocalStorageHistoryAdapter().load()).toEqual([
+    storage.setItem(STORAGE_KEY, '{"version":1,"queries":["Japan","Canada"]}');
+
+    expect(createLocalStorageHistoryAdapter(storage).load()).toEqual([
       'Japan',
       'Canada',
     ]);
   });
 
-  it('saves the versioned DTO under the history storage key', (): void => {
-    createLocalStorageHistoryAdapter().save(['Japan']);
+  it('saves the versioned DTO under the history key', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
 
-    expect(browserStorage.getItem(STORAGE_KEY)).toBe(
-      JSON.stringify({ version: 1, queries: ['Japan'] }),
-    );
+    createLocalStorageHistoryAdapter(storage).save(['Japan']);
+
+    expect(JSON.parse(storage.getItem(STORAGE_KEY) ?? 'null')).toEqual({
+      version: 1,
+      queries: ['Japan'],
+    });
   });
 
-  it('restores saved queries from storage in a new adapter instance', (): void => {
-    createLocalStorageHistoryAdapter().save(['Japan', 'Canada']);
-    const restoredAdapter: ReturnType<typeof createLocalStorageHistoryAdapter> =
-      createLocalStorageHistoryAdapter();
+  it('restores saved queries in a new adapter instance', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
 
-    expect(restoredAdapter.load()).toEqual(['Japan', 'Canada']);
+    createLocalStorageHistoryAdapter(storage).save(['Japan', 'Canada']);
+
+    expect(createLocalStorageHistoryAdapter(storage).load()).toEqual([
+      'Japan',
+      'Canada',
+    ]);
   });
 
-  it('filters entries that are not strings from the DTO', (): void => {
-    browserStorage.setItem(
+  it('filters DTO entries that are not strings', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
+
+    storage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ version: 1, queries: ['Japan', 42, null, 'Canada'] }),
+      '{"version":1,"queries":["Japan",42,null,"Canada"]}',
     );
 
-    expect(createLocalStorageHistoryAdapter().load()).toEqual([
+    expect(createLocalStorageHistoryAdapter(storage).load()).toEqual([
       'Japan',
       'Canada',
     ]);
   });
 
   it.each([
-    ['malformed JSON', '{'],
-    [
-      'an unsupported version',
-      JSON.stringify({ version: 2, queries: ['Japan'] }),
-    ],
-    ['a malformed DTO', JSON.stringify({ version: 1, queries: 'Japan' })],
+    null,
+    '{',
+    'null',
+    '[]',
+    '{"version":2,"queries":["Japan"]}',
+    '{"version":1,"queries":"Japan"}',
   ])(
-    'returns empty history for %s',
-    (_scenario: string, serialized: string): void => {
-      browserStorage.setItem(STORAGE_KEY, serialized);
+    'returns empty history for missing or invalid DTO %j',
+    (serialized: string | null): void => {
+      const storage: KeyValueStorage = createMemoryStorage();
 
-      expect(createLocalStorageHistoryAdapter().load()).toEqual([]);
+      if (serialized !== null) {
+        storage.setItem(STORAGE_KEY, serialized);
+      }
+
+      expect(createLocalStorageHistoryAdapter(storage).load()).toEqual([]);
     },
   );
 
-  it('returns empty history when browser storage denies reads', (): void => {
-    vi.stubGlobal('localStorage', {
-      ...browserStorage,
-      getItem: (): never => {
-        throw new Error('Storage access denied');
-      },
+  it('returns empty history if initial reading is denied', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
+
+    vi.spyOn(storage, 'getItem').mockImplementation((): never => {
+      throw new Error('Storage denied');
     });
 
-    expect(createLocalStorageHistoryAdapter().load()).toEqual([]);
+    expect(createLocalStorageHistoryAdapter(storage).load()).toEqual([]);
   });
 
-  it('does not throw when browser storage denies writes', (): void => {
-    const deniedStorage: Storage = {
-      ...browserStorage,
-      setItem: (): never => {
-        throw new Error('Storage access denied');
-      },
-    };
+  it('retains saved queries in memory when storage reports a denied write', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
 
-    vi.stubGlobal('localStorage', deniedStorage);
+    vi.spyOn(storage, 'setItem').mockReturnValue(false);
     const adapter: ReturnType<typeof createLocalStorageHistoryAdapter> =
-      createLocalStorageHistoryAdapter();
+      createLocalStorageHistoryAdapter(storage);
 
-    const saveHistory: () => void = (): void => {
-      adapter.save(['Japan']);
-    };
+    adapter.save(['Japan']);
 
-    expect(saveHistory).not.toThrow();
     expect(adapter.load()).toEqual(['Japan']);
+    expect(storage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it('keeps service history available when localStorage rejects a write', (): void => {
-    vi.stubGlobal('localStorage', {
-      ...browserStorage,
-      setItem: (): never => {
-        throw new Error('Storage access denied');
-      },
+  it('retains the latest loaded snapshot if a later read fails', (): void => {
+    const storage: KeyValueStorage = createMemoryStorage();
+
+    storage.setItem(STORAGE_KEY, '{"version":1,"queries":["Japan"]}');
+    const adapter: ReturnType<typeof createLocalStorageHistoryAdapter> =
+      createLocalStorageHistoryAdapter(storage);
+
+    expect(adapter.load()).toEqual(['Japan']);
+    vi.spyOn(storage, 'getItem').mockImplementation((): never => {
+      throw new Error('Storage denied');
     });
 
-    const historyService: ReturnType<typeof createHistoryService> =
-      createHistoryService(createLocalStorageHistoryAdapter());
-
-    historyService.recordQuery('Japan');
-
-    expect(historyService.getRecentQueries()).toEqual(['Japan']);
+    expect(adapter.load()).toEqual(['Japan']);
   });
 });

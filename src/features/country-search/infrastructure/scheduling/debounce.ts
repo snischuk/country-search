@@ -7,7 +7,33 @@ export interface TimerDriver<TimerHandle> {
   cancelTimeout(timerHandle: TimerHandle): void;
 }
 
+const RUNTIME_TIMER_DRIVER: TimerDriver<ReturnType<typeof setTimeout>> = {
+  scheduleTimeout(
+    callback: () => void,
+    delayMilliseconds: number,
+  ): ReturnType<typeof setTimeout> {
+    return globalThis.setTimeout(callback, delayMilliseconds);
+  },
+  cancelTimeout(timerHandle: ReturnType<typeof setTimeout>): void {
+    globalThis.clearTimeout(timerHandle);
+  },
+};
+
 export function debounce<CallbackArguments extends unknown[], TimerHandle>(
+  callbackToDebounce: (...callbackArguments: CallbackArguments) => void,
+  delayMilliseconds: number,
+  timerDriver?: TimerDriver<TimerHandle>,
+): Debounced<CallbackArguments> {
+  return timerDriver === undefined
+    ? createDebounced(
+        callbackToDebounce,
+        delayMilliseconds,
+        RUNTIME_TIMER_DRIVER,
+      )
+    : createDebounced(callbackToDebounce, delayMilliseconds, timerDriver);
+}
+
+function createDebounced<CallbackArguments extends unknown[], TimerHandle>(
   callbackToDebounce: (...callbackArguments: CallbackArguments) => void,
   delayMilliseconds: number,
   timerDriver: TimerDriver<TimerHandle>,

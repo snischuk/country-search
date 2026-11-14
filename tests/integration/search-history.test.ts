@@ -1,220 +1,161 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import {
   SEARCH_STATUS,
   createCachedSearchPort,
-  createSearchController,
-  searchCountries,
+  createSearchCountriesAdapter,
 } from '@/features/country-search';
-import type {
-  HistoryRecorder,
-  SearchPort,
-  SearchState,
-  SearchView,
-} from '@/features/country-search';
+import type { SearchPort } from '@/features/country-search';
+import { createHistoryService } from '@/services/search-history/application/history-service';
+import { createLocalStorageHistoryAdapter } from '@/services/search-history/infrastructure/local-storage-history.adapter';
+import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
 
-interface ScheduledSearch {
-  readonly callback: () => void;
-  isCancelled: boolean;
+import { createControllerSetup } from '../support/search-controller';
+import { createMemoryStorage } from '../support/storage';
+
+function createHistory(): ReturnType<typeof createHistoryService> {
+  return createHistoryService(
+    createLocalStorageHistoryAdapter(createMemoryStorage()),
+  );
 }
 
-function createSearchHistorySetup(useCache: boolean = false): {
-  readonly controller: ReturnType<typeof createSearchController>;
-  readonly search: Mock<SearchPort['search']>;
-  readonly recordQuery: ReturnType<typeof vi.fn>;
-  readonly scheduledSearches: ScheduledSearch[];
-  readonly states: SearchState[];
-  readonly searchField: { value: string };
-} {
-  const states: SearchState[] = [];
-  const searchField: { value: string } = { value: '' };
-  const scheduledSearches: ScheduledSearch[] = [];
-  const search: Mock<SearchPort['search']> = vi.fn<SearchPort['search']>();
+beforeEach((): void => {
+  vi.useFakeTimers();
+});
 
-  search.mockResolvedValue([]);
-  const recordQuery: ReturnType<typeof vi.fn<(query: string) => void>> =
-    vi.fn<(query: string) => void>();
-  const transport: SearchPort = { search };
-  const searchPort: SearchPort = useCache
-    ? createCachedSearchPort(transport)
-    : transport;
-  const historyRecorder: HistoryRecorder = { recordQuery };
-  const searchView: SearchView = {
-    render(state: SearchState): void {
-      states.push(state);
+afterEach((): void => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+});
+
+describe('search and history integration', (): void => {
+  it('restores launched searches when the history service is recreated', async (): Promise<void> => {
+    const storage: KeyValueStorage = createMemoryStorage();
+    const history: ReturnType<typeof createHistoryService> =
+      createHistoryService(createLocalStorageHistoryAdapter(storage));
+    const { controller }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history);
+
+    controller.searchFromHistory(' Japan ');
+    await vi.advanceTimersByTimeAsync(0);
+    const restored: ReturnType<typeof createHistoryService> =
+      createHistoryService(createLocalStorageHistoryAdapter(storage));
+
+    expect(restored.getRecentQueries()).toEqual(['Japan']);
+  });
+
+  it('records only the latest query when debounce actually launches it', async (): Promise<void> => {
+    const history: ReturnType<typeof createHistoryService> = createHistory();
+    const { controller, search }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history);
+
+    controller.updateSearchQuery('Japan');
+    controller.updateSearchQuery('Canada');
+    expect(history.getRecentQueries()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(history.getRecentQueries()).toEqual(['Canada']);
+    expect(search).toHaveBeenCalledExactlyOnceWith('Canada', expect.anything());
+  });
+
+  it.each([false, true])(
+    'records a launched query even when it fails: %s',
+    async (shouldFail: boolean): Promise<void> => {
+      const history: ReturnType<typeof createHistoryService> = createHistory();
+      const {
+        controller,
+        search,
+        render,
+      }: ReturnType<typeof createControllerSetup> =
+        createControllerSetup(history);
+
+      if (shouldFail) {
+        search.mockRejectedValue(new TypeError('Offline'));
+      }
+
+      controller.searchFromHistory('Japan');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(history.getRecentQueries()).toEqual(['Japan']);
+      expect(render).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          status: shouldFail ? SEARCH_STATUS.error : SEARCH_STATUS.empty,
+          query: 'Japan',
+        }),
+        null,
+      );
     },
-    setQuery(query: string): void {
-      searchField.value = query;
-    },
-  };
-  const controller: ReturnType<typeof createSearchController> =
-    createSearchController(
-      searchPort,
-      searchView,
-      (callback: () => void): { invoke(): void; cancel(): void } => {
-        const scheduledSearch: ScheduledSearch = {
-          callback,
-          isCancelled: false,
-        };
+  );
 
-        scheduledSearches.push(scheduledSearch);
-
-        return {
-          invoke(): void {
-            if (!scheduledSearch.isCancelled) {
-              callback();
-            }
-          },
-          cancel(): void {
-            scheduledSearch.isCancelled = true;
-          },
-        };
-      },
-      historyRecorder,
+  it('moves a cached history selection to the front without another HTTP request', async (): Promise<void> => {
+    const history: ReturnType<typeof createHistoryService> = createHistory();
+    const cache: SearchPort = createCachedSearchPort(
+      createSearchCountriesAdapter(),
     );
+    const fetchRequest: Mock<typeof fetch> = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('not JSON', { status: 404 }));
+    const { controller, render }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history, cache);
 
-  return {
-    controller,
-    search,
-    recordQuery,
-    scheduledSearches,
-    states,
-    searchField,
-  };
-}
+    controller.searchFromHistory('missing');
+    await vi.advanceTimersByTimeAsync(0);
+    controller.searchFromHistory('Japan');
+    await vi.advanceTimersByTimeAsync(0);
+    controller.searchFromHistory(' missing ');
+    await vi.advanceTimersByTimeAsync(0);
 
-describe('search history integration', (): void => {
-  it('records only when the debounced search actually starts', async (): Promise<void> => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
-
-    setup.controller.updateSearchQuery('Japan');
-    setup.controller.updateSearchQuery('Canada');
-
-    expect(setup.recordQuery).not.toHaveBeenCalled();
-
-    setup.scheduledSearches[1]?.callback();
-    await Promise.resolve();
-
-    expect(setup.recordQuery).toHaveBeenCalledExactlyOnceWith('Canada');
-    expect(setup.search).toHaveBeenCalledExactlyOnceWith(
-      'Canada',
-      expect.anything(),
+    expect(fetchRequest).toHaveBeenCalledTimes(2);
+    expect(history.getRecentQueries()).toEqual(['missing', 'Japan']);
+    expect(render).toHaveBeenLastCalledWith(
+      { status: SEARCH_STATUS.empty, query: 'missing' },
+      null,
     );
-
-    setup.controller.destroy();
   });
 
-  it('records a launched query even when the search later returns no matches', async (): Promise<void> => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
+  it('updates the search field and launches a history selection immediately', async (): Promise<void> => {
+    const history: ReturnType<typeof createHistoryService> = createHistory();
+    const {
+      controller,
+      setQuery,
+      search,
+    }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history);
 
-    setup.controller.searchFromHistory('missing');
-    await Promise.resolve();
+    controller.searchFromHistory(' Japan ');
 
-    expect(setup.recordQuery).toHaveBeenCalledExactlyOnceWith('missing');
-    expect(setup.states.at(-1)).toEqual({
-      status: SEARCH_STATUS.empty,
-      query: 'missing',
-    });
-
-    setup.controller.destroy();
+    expect(setQuery).toHaveBeenCalledExactlyOnceWith('Japan');
+    expect(search).toHaveBeenCalledExactlyOnceWith('Japan', expect.anything());
+    await vi.advanceTimersByTimeAsync(300);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(history.getRecentQueries()).toEqual(['Japan']);
   });
 
-  it('records a launched query even when the search fails', async (): Promise<void> => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
+  it('does not record a query cleared before debounce completes', async (): Promise<void> => {
+    const history: ReturnType<typeof createHistoryService> = createHistory();
+    const { controller, search }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history);
 
-    setup.search.mockRejectedValueOnce(new TypeError('Network unavailable'));
+    controller.updateSearchQuery('Japan');
+    controller.updateSearchQuery('');
+    await vi.runAllTimersAsync();
 
-    setup.controller.searchFromHistory('Japan');
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(setup.recordQuery).toHaveBeenCalledExactlyOnceWith('Japan');
-
-    setup.controller.destroy();
+    expect(history.getRecentQueries()).toEqual([]);
+    expect(search).not.toHaveBeenCalled();
   });
 
-  it('records a search selected from history even when cache avoids transport', async (): Promise<void> => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup(true);
+  it('keeps a launched query in history after a later input cancels it', async (): Promise<void> => {
+    const history: ReturnType<typeof createHistoryService> = createHistory();
+    const { controller, search }: ReturnType<typeof createControllerSetup> =
+      createControllerSetup(history);
 
-    setup.controller.searchFromHistory('Japan');
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    setup.controller.searchFromHistory(' Japan ');
-    await Promise.resolve();
+    controller.searchFromHistory('Japan');
+    controller.updateSearchQuery('Canada');
 
-    expect(setup.recordQuery.mock.calls).toEqual([['Japan'], ['Japan']]);
-    expect(setup.search).toHaveBeenCalledOnce();
-
-    setup.controller.destroy();
-  });
-
-  it('records a history selection when a cached HTTP 404 stays empty', async (): Promise<void> => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup(true);
-    const fetchMock: Mock<typeof fetch> = vi.spyOn(globalThis, 'fetch');
-
-    fetchMock.mockResolvedValue(new Response('not JSON', { status: 404 }));
-    setup.search.mockImplementation(searchCountries);
-    setup.controller.searchFromHistory('missing');
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    setup.controller.searchFromHistory('missing');
-    await Promise.resolve();
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(setup.recordQuery.mock.calls).toEqual([['missing'], ['missing']]);
-    expect(setup.states.at(-1)).toEqual({
-      status: SEARCH_STATUS.empty,
-      query: 'missing',
-    });
-
-    setup.controller.destroy();
-  });
-
-  it('updates the search field and launches a selected history query immediately', (): void => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
-
-    setup.controller.searchFromHistory('  Japan  ');
-
-    expect(setup.searchField.value).toBe('Japan');
-    expect(setup.search).toHaveBeenCalledOnce();
-    expect(setup.scheduledSearches).toHaveLength(0);
-
-    setup.controller.destroy();
-  });
-
-  it('does not record a scheduled search cancelled before launch', (): void => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
-
-    setup.controller.updateSearchQuery('Japan');
-    setup.controller.updateSearchQuery('');
-
-    expect(setup.recordQuery).not.toHaveBeenCalled();
-    expect(setup.scheduledSearches[0]?.isCancelled).toBe(true);
-
-    setup.controller.destroy();
-  });
-
-  it('records a launched query even if a later query cancels its request', (): void => {
-    const setup: ReturnType<typeof createSearchHistorySetup> =
-      createSearchHistorySetup();
-
-    setup.controller.searchFromHistory('Japan');
-    setup.controller.updateSearchQuery('Canada');
-
-    expect(setup.recordQuery).toHaveBeenCalledExactlyOnceWith('Japan');
-    expect(setup.scheduledSearches).toHaveLength(1);
-
-    setup.controller.destroy();
+    expect(search.mock.calls[0]?.[1].isCancelled).toBe(true);
+    expect(history.getRecentQueries()).toEqual(['Japan']);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(history.getRecentQueries()).toEqual(['Canada', 'Japan']);
   });
 });

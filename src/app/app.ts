@@ -6,7 +6,7 @@ import {
   createCountrySearchPanel,
   createDebounceSchedulerFactory,
   createSearchController,
-  searchCountries,
+  createSearchCountriesAdapter,
 } from '@/features/country-search';
 import type {
   CountrySearchPanel,
@@ -87,7 +87,7 @@ export function startApp(container: HTMLElement): () => void {
     },
     historyPanel.element,
   );
-  const transport: SearchPort = { search: searchCountries };
+  const transport: SearchPort = createSearchCountriesAdapter();
   const searchPort: SearchPort = createCachedSearchPort(transport);
   const schedulerFactory: SchedulerFactory = createDebounceSchedulerFactory(
     createBrowserTimerDriver(),
