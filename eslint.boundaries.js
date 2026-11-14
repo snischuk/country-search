@@ -73,6 +73,12 @@ export default {
               },
             },
           },
+          {
+            from: { element: { type: getModuleTypes('feature') } },
+            disallow: {
+              to: { element: { type: getModuleTypes('feature') } },
+            },
+          },
           // Internal imports stay within the owning module.
           ...moduleKinds.map(kind => ({
             from: { element: { type: getModuleTypes(kind) } },

@@ -10,16 +10,70 @@ interface ArchitectureCase {
   path: string;
   source: string;
   isDenied: boolean;
+  ruleId?: string;
 }
 
 const root: string = fileURLToPath(new URL('../../', import.meta.url));
 const moduleName: string = `architecture-probe-${process.pid}`;
 const servicePath: string = `src/services/${moduleName}`;
+const featurePath: string = `src/features/${moduleName}`;
+const peerFeaturePath: string = `src/features/${moduleName}-peer`;
 const sharedPath: string = `src/shared/${moduleName}`;
 const sharedPresentationPath: string = `src/shared/presentation/${moduleName}`;
 const sharedDomainPath: string = `src/shared/domain/${moduleName}`;
 const appPath: string = `src/app/${moduleName}.ts`;
 const cases: ArchitectureCase[] = [
+  ...['domain', 'application', 'infrastructure', 'presentation'].map(
+    (layer: string): ArchitectureCase => ({
+      title: `rejects ${layer} importing another feature public API`,
+      path: `${featurePath}/${layer}/other-feature.ts`,
+      source: `import { value } from '@/features/${moduleName}-peer'; void value;`,
+      isDenied: true,
+    }),
+  ),
+  {
+    title: 'allows a feature to import its own domain',
+    path: `${featurePath}/application/own-domain.ts`,
+    source: `import { value } from '@/features/${moduleName}/domain/value'; void value;`,
+    isDenied: false,
+  },
+  {
+    title: 'allows a feature to import a service public API',
+    path: `${featurePath}/presentation/service.ts`,
+    source: `import { value } from '@/services/${moduleName}'; void value;`,
+    isDenied: false,
+  },
+  {
+    title: 'allows app composition to import a feature public API',
+    path: `src/app/${moduleName}-feature.ts`,
+    source: `import { value } from '@/features/${moduleName}-peer'; void value;`,
+    isDenied: false,
+  },
+  ...[
+    `${featurePath}/domain`,
+    `${servicePath}/domain`,
+    sharedDomainPath,
+  ].flatMap((domainPath: string): ArchitectureCase[] =>
+    [
+      'fetch',
+      'localStorage',
+      'sessionStorage',
+      'window',
+      'document',
+      'setTimeout',
+      'clearTimeout',
+      'AbortController',
+      'AbortSignal',
+      'DOMException',
+    ].map((globalName: string): ArchitectureCase => ({
+      title: `rejects ${globalName} in ${domainPath}`,
+      path: `${domainPath}/browser-${globalName.toLowerCase()}.ts`,
+      source: `void ${globalName};`,
+      isDenied: true,
+      ruleId: 'no-restricted-globals',
+    })),
+  ),
+
   {
     title: 'allows application to import its own domain',
     path: `${servicePath}/application/allowed.ts`,
@@ -98,6 +152,21 @@ function writeFixture(path: string, source: string): void {
 
 beforeAll(async (): Promise<void> => {
   writeFixture(
+    `${featurePath}/domain/value.ts`,
+    'export const value: number = 1;',
+  );
+
+  writeFixture(
+    `${peerFeaturePath}/domain/value.ts`,
+    'export const value: number = 1;',
+  );
+
+  writeFixture(
+    `${peerFeaturePath}/index.ts`,
+    "export { value } from './domain/value';",
+  );
+
+  writeFixture(
     `${sharedPresentationPath}/value.ts`,
     'export const value: number = 1;',
   );
@@ -134,6 +203,10 @@ beforeAll(async (): Promise<void> => {
 }, 15000);
 
 afterAll((): void => {
+  rmSync(resolve(root, featurePath), { recursive: true, force: true });
+  rmSync(resolve(root, peerFeaturePath), { recursive: true, force: true });
+  rmSync(resolve(root, `src/app/${moduleName}-feature.ts`), { force: true });
+
   rmSync(resolve(root, servicePath), { recursive: true, force: true });
   rmSync(resolve(root, sharedPath), { recursive: true, force: true });
   rmSync(resolve(root, sharedPresentationPath), {
@@ -158,7 +231,7 @@ describe('architecture boundaries', (): void => {
       expect(
         result?.messages.some(
           (message: Linter.LintMessage): boolean =>
-            message.ruleId === 'boundaries/dependencies',
+            message.ruleId === (testCase.ruleId ?? 'boundaries/dependencies'),
         ),
       ).toBe(testCase.isDenied);
     });

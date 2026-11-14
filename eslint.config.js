@@ -102,7 +102,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/**/application/**/*.ts'],
+    files: ['src/**/application/**/*.ts', 'src/**/domain/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',
