@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ValidationError } from '@/features/country-search/application/search-errors';
 import type { Country } from '@/features/country-search/domain/country.type';
-import { mapCountryResponse } from '@/features/country-search/infrastructure/map-country-response';
+import { mapCountryResponse } from '@/features/country-search/infrastructure/http/map-country-response';
 
 const fullCountryResponse: unknown = JSON.parse(
   readFileSync(

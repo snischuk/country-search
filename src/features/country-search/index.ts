@@ -16,9 +16,9 @@ export type {
   SearchController,
 } from './application/search.port';
 export { createSearchController } from './application/search-controller';
-export { searchCountries } from './infrastructure/search-countries.adapter';
-export { createBrowserTimerDriver } from './infrastructure/browser-timer.adapter';
-export { createDebounceSchedulerFactory } from './infrastructure/debounce-scheduler.adapter';
+export { searchCountries } from './infrastructure/http/search-countries.adapter';
+export { createBrowserTimerDriver } from './infrastructure/scheduling/browser-timer.adapter';
+export { createDebounceSchedulerFactory } from './infrastructure/scheduling/debounce-scheduler.adapter';
 export { createCountrySearchPanel } from './presentation/country-search-panel/country-search-panel.component';
 export type {
   CountrySearchPanel,

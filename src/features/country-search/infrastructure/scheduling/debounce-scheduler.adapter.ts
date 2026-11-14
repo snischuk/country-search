@@ -1,7 +1,7 @@
 import type {
   ScheduledTask,
   SchedulerFactory,
-} from '../application/search.port';
+} from '../../application/search.port';
 
 import { debounce } from './debounce';
 import type { Debounced, TimerDriver } from './debounce';

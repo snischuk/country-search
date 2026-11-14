@@ -1,5 +1,5 @@
-import { ValidationError } from '../application/search-errors';
-import type { Country, Currency } from '../domain/country.type';
+import { ValidationError } from '../../application/search-errors';
+import type { Country, Currency } from '../../domain/country.type';
 
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;

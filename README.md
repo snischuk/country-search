@@ -18,6 +18,9 @@ src/
 │   ├── domain/
 │   ├── application/
 │   ├── infrastructure/
+│   │   ├── http/               # HTTP, response mapping, abort deadline
+│   │   ├── scheduling/         # browser timers and debounce
+│   │   └── cached-search.adapter.ts
 │   ├── presentation/
 │   │   ├── country-search-panel/  # *.component.ts + *.component.css
 │   │   ├── country-card/

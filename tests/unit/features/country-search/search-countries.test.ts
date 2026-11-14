@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ValidationError } from '@/features/country-search/application/search-errors';
 import type { SearchCancellationSignal } from '@/features/country-search/application/search.port';
 import type { Country } from '@/features/country-search/domain/country.type';
-import { searchCountries } from '@/features/country-search/infrastructure/search-countries.adapter';
+import { searchCountries } from '@/features/country-search/infrastructure/http/search-countries.adapter';
 
 const REQUEST_TIMEOUT_MS: number = 10_000;
 

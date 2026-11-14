@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { debounce } from '@/features/country-search/infrastructure/debounce';
+import { debounce } from '@/features/country-search/infrastructure/scheduling/debounce';
 import type {
   Debounced,
   TimerDriver,
-} from '@/features/country-search/infrastructure/debounce';
+} from '@/features/country-search/infrastructure/scheduling/debounce';
 
 const TIMER_DRIVER: TimerDriver<ReturnType<typeof setTimeout>> = {
   scheduleTimeout(
