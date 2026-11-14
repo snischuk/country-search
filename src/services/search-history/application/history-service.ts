@@ -42,11 +42,21 @@ export function createHistoryService(storage: HistoryStorage): HistoryService {
       recentQueries = updatedQueries;
     }
 
+    const callbackErrors: unknown[] = [];
+
     subscribers.forEach(
       (onHistoryChange: (queries: readonly string[]) => void): void => {
-        onHistoryChange(recentQueries);
+        try {
+          onHistoryChange(recentQueries);
+        } catch (error: unknown) {
+          callbackErrors.push(error);
+        }
       },
     );
+
+    if (callbackErrors.length > 0) {
+      throw new AggregateError(callbackErrors, 'History subscribers failed');
+    }
   }
 
   function subscribe(

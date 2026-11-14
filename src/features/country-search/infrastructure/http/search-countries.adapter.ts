@@ -85,15 +85,7 @@ async function fetchCountries(
     );
   } catch (error: unknown) {
     if (abortContext.signal.aborted) {
-      const abortReason: unknown = abortContext.signal.reason;
-
-      throw abortReason instanceof Error
-        ? abortReason
-        : new DOMException('The request was cancelled.', 'AbortError');
-    }
-
-    if (error instanceof ValidationError || error instanceof HttpError) {
-      throw error;
+      throw getAbortReason(abortContext.signal);
     }
 
     throw error;
@@ -115,11 +107,7 @@ async function parseJson(
     return await response.json();
   } catch (error: unknown) {
     if (signal.aborted) {
-      const abortReason: unknown = signal.reason;
-
-      throw abortReason instanceof Error
-        ? abortReason
-        : new DOMException('The request was cancelled.', 'AbortError');
+      throw getAbortReason(signal);
     }
 
     if (error instanceof SyntaxError) {
@@ -128,4 +116,10 @@ async function parseJson(
 
     throw error;
   }
+}
+
+function getAbortReason(signal: AbortSignal): Error {
+  const abortReason: unknown = signal.reason;
+
+  return abortReason instanceof Error ? abortReason : createAbortError();
 }

@@ -6,6 +6,7 @@ import {
   ValidationError,
 } from '@/features/country-search/application/search-errors';
 import type {
+  HistoryRecorder,
   ScheduledTask,
   SchedulerFactory,
   SearchCancellationSignal,
@@ -60,7 +61,7 @@ function createCountry(name: string): Country {
   };
 }
 
-function createSearchHarness(): SearchHarness {
+function createSearchHarness(historyRecorder?: HistoryRecorder): SearchHarness {
   const pendingSearches: PendingSearch[] = [];
   const renderedStates: SearchState[] = [];
   const selectedCountries: (Country | null)[] = [];
@@ -123,6 +124,7 @@ function createSearchHarness(): SearchHarness {
     searchPort,
     searchView,
     createScheduledTask,
+    historyRecorder,
   );
 
   return {
@@ -141,6 +143,31 @@ async function resolveMicrotasks(): Promise<void> {
 }
 
 describe('createSearchController', (): void => {
+  it('finishes a search when the optional history recorder throws', async (): Promise<void> => {
+    const { controller, pendingSearches, renderedStates }: SearchHarness =
+      createSearchHarness({
+        recordQuery(): never {
+          throw new Error('History unavailable');
+        },
+      });
+    const countries: readonly Country[] = [createCountry('Japan')];
+
+    controller.updateSearchQuery('Japan');
+    controller.retrySearch();
+
+    expect(pendingSearches).toHaveLength(1);
+    pendingSearches[0]?.resolve(countries);
+    await resolveMicrotasks();
+
+    expect(renderedStates.at(-1)).toEqual({
+      status: SEARCH_STATUS.results,
+      query: 'Japan',
+      countries,
+    });
+
+    controller.destroy();
+  });
+
   it('renders idle initially and waits 300 milliseconds before searching', (): void => {
     const {
       controller,

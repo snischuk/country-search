@@ -17,6 +17,46 @@ function createMemoryStorage(
 }
 
 describe('createHistoryService', (): void => {
+  it('notifies remaining subscribers before reporting callback failures', (): void => {
+    const storage: HistoryStorage = createMemoryStorage();
+    const service: ReturnType<typeof createHistoryService> =
+      createHistoryService(storage);
+    const callbackError: Error = new Error('Subscriber failed');
+    const onHistoryChange: (queries: readonly string[]) => void = vi.fn();
+
+    service.subscribe((): never => {
+      throw callbackError;
+    });
+
+    service.subscribe(onHistoryChange);
+
+    expect((): void => service.recordQuery('Japan')).toThrow(
+      expect.objectContaining({ errors: [callbackError] }),
+    );
+
+    expect(onHistoryChange).toHaveBeenCalledWith(['Japan']);
+    expect(service.getRecentQueries()).toEqual(['Japan']);
+    expect(storage.load()).toEqual(['Japan']);
+  });
+
+  it('continues notifying subscribers when persistence is denied', (): void => {
+    const storage: HistoryStorage = {
+      load: (): readonly string[] => [],
+      save(): never {
+        throw new Error('Storage denied');
+      },
+    };
+    const service: ReturnType<typeof createHistoryService> =
+      createHistoryService(storage);
+    const onHistoryChange: (queries: readonly string[]) => void = vi.fn();
+
+    service.subscribe(onHistoryChange);
+    service.recordQuery('Japan');
+
+    expect(service.getRecentQueries()).toEqual(['Japan']);
+    expect(onHistoryChange).toHaveBeenCalledWith(['Japan']);
+  });
+
   it('loads and normalizes stored queries when created', (): void => {
     const service: ReturnType<typeof createHistoryService> =
       createHistoryService(

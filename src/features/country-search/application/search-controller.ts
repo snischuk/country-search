@@ -49,6 +49,14 @@ export function createSearchController(
     cancelCurrentSearch();
   }
 
+  function recordOptionalHistoryQuery(query: string): void {
+    try {
+      historyRecorder?.recordQuery(query);
+    } catch {
+      return;
+    }
+  }
+
   async function executeCountrySearch(
     query: string,
     cancellationSource: SearchCancellationSource,
@@ -62,7 +70,7 @@ export function createSearchController(
 
     selectedCountry = null;
     renderState({ status: SEARCH_STATUS.loading, query });
-    historyRecorder?.recordQuery(query);
+    recordOptionalHistoryQuery(query);
 
     try {
       const countries: readonly Country[] = await searchPort.search(
