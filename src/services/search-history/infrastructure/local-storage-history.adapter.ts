@@ -1,3 +1,6 @@
+import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
+import { localStorageService } from '@/shared/infrastructure/storage/local-storage.adapter';
+
 import type { HistoryStorage } from '../application/history-storage.port';
 
 const STORAGE_KEY: string = 'country-search.history.v1';
@@ -8,12 +11,14 @@ interface HistoryStorageDto {
   queries: unknown[];
 }
 
-export function createLocalStorageHistoryAdapter(): HistoryStorage {
+export function createLocalStorageHistoryAdapter(
+  storage: KeyValueStorage = localStorageService,
+): HistoryStorage {
   let memoryQueries: readonly string[] = [];
 
   function load(): readonly string[] {
     try {
-      const serializedDto: string | null = localStorage.getItem(STORAGE_KEY);
+      const serializedDto: string | null = storage.getItem(STORAGE_KEY);
 
       if (serializedDto === null) {
         return memoryQueries;
@@ -40,14 +45,10 @@ export function createLocalStorageHistoryAdapter(): HistoryStorage {
   function save(queries: readonly string[]): void {
     memoryQueries = [...queries];
 
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ version: STORAGE_VERSION, queries: memoryQueries }),
-      );
-    } catch {
-      return;
-    }
+    storage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: STORAGE_VERSION, queries: memoryQueries }),
+    );
   }
 
   return { load, save };
