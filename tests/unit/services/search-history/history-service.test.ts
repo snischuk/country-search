@@ -38,7 +38,7 @@ describe('createHistoryService', (): void => {
   it('notifies subscribers with the updated snapshot', (): void => {
     const service: ReturnType<typeof createHistoryService> =
       createHistoryService(createMemoryStorage());
-    const onHistoryChange: ReturnType<typeof vi.fn> = vi.fn();
+    const onHistoryChange: (queries: readonly string[]) => void = vi.fn();
 
     service.subscribe(onHistoryChange);
     service.recordQuery('Japan');
@@ -50,7 +50,7 @@ describe('createHistoryService', (): void => {
   it('stops notifying after a subscriber unsubscribes', (): void => {
     const service: ReturnType<typeof createHistoryService> =
       createHistoryService(createMemoryStorage());
-    const onHistoryChange: ReturnType<typeof vi.fn> = vi.fn();
+    const onHistoryChange: (queries: readonly string[]) => void = vi.fn();
     const unsubscribe: () => void = service.subscribe(onHistoryChange);
 
     unsubscribe();
@@ -81,7 +81,7 @@ describe('createHistoryService', (): void => {
   it('does not change state or notify subscribers for an empty query', (): void => {
     const service: ReturnType<typeof createHistoryService> =
       createHistoryService(createMemoryStorage(['Japan']));
-    const onHistoryChange: ReturnType<typeof vi.fn> = vi.fn();
+    const onHistoryChange: (queries: readonly string[]) => void = vi.fn();
 
     service.subscribe(onHistoryChange);
     service.recordQuery('  ');
