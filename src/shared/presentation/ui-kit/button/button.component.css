@@ -3,7 +3,7 @@
   cursor: pointer;
 }
 .ui-button:focus-visible {
-  outline: 0.2rem solid var(--color-focus);
+  outline: 0.2rem solid var(--color-accent);
   outline-offset: 0.2rem;
 }
 .ui-button--primary {
@@ -12,7 +12,7 @@
   border: 0;
   border-radius: 0.7rem;
   background: var(--color-accent);
-  color: white;
+  color: var(--color-paper);
   font-weight: 700;
   transition:
     background-color 160ms ease,
@@ -21,5 +21,13 @@
 
 .ui-button--primary:hover {
   transform: translateY(-1px);
-  background: var(--color-accent-dark);
+  background: color-mix(in srgb, var(--color-accent), white 25%);
+}
+
+.light-theme .ui-button--primary {
+  color: white;
+}
+
+.light-theme .ui-button--primary:hover {
+  background: color-mix(in srgb, var(--color-accent), black 15%);
 }

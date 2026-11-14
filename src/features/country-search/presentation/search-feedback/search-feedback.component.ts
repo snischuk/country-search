@@ -49,6 +49,18 @@ export function createSearchFeedback(
         document.activeElement === retryButton;
 
       status.textContent = getStatusMessage(state);
+
+      if (state.status === SEARCH_STATUS.results) {
+        const query: HTMLElement = document.createElement('strong');
+
+        query.textContent = state.query;
+        status.replaceChildren(
+          `${state.countries.length} countries found for `,
+          query,
+          '.',
+        );
+      }
+
       status.dataset['state'] = state.status;
       errorMessage.textContent =
         state.status === SEARCH_STATUS.error ? state.message : '';

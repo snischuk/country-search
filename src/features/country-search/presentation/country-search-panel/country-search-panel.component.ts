@@ -28,6 +28,7 @@ export interface CountrySearchPanel {
 
 export function createCountrySearchPanel(
   callbacks: CountrySearchPanelCallbacks,
+  searchAccessory?: HTMLElement,
 ): CountrySearchPanel {
   const panel: HTMLElement = document.createElement('section');
   const search: SearchForm = createSearchForm(
@@ -60,7 +61,13 @@ export function createCountrySearchPanel(
 
   resultList.className = 'country-results';
   resultList.setAttribute('aria-label', 'Countries');
-  panel.append(search.element, feedback.element, resultList, details.element);
+  panel.append(search.element);
+
+  if (searchAccessory !== undefined) {
+    panel.append(searchAccessory);
+  }
+
+  panel.append(feedback.element, resultList, details.element);
 
   const view: SearchView = {
     setQuery(query: string): void {

@@ -27,7 +27,7 @@
 
 .country-details__title {
   margin: 0 0 1rem;
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: inherit;
   font-size: clamp(1.8rem, 5vw, 2.8rem);
   line-height: 1.15;
 }

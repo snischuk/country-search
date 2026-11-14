@@ -3,7 +3,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.7rem;
   align-items: end;
-  max-width: 52rem;
+  width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 1.15rem;
@@ -23,14 +23,14 @@
   width: 100%;
   min-height: 3.25rem;
   padding: 0.7rem 0.9rem;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-border);
   border-radius: 0.7rem;
-  background: #f6f7f3;
+  background: var(--color-paper);
   color: var(--color-ink);
 }
 
 .country-search__input::placeholder {
-  color: #899395;
+  color: var(--color-muted);
 }
 
 .country-search__hint {
@@ -45,4 +45,8 @@
   .country-search__label {
     grid-column: auto;
   }
+}
+
+.country-search__form:focus-within {
+  border-color: var(--color-accent);
 }
