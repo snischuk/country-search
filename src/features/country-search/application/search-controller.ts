@@ -2,6 +2,7 @@ import type { Country } from '../domain/country.type';
 import { SEARCH_STATUS } from '../domain/search-state.type';
 import type { SearchState } from '../domain/search-state.type';
 
+import { createSearchCancellationSource } from './search-cancellation';
 import { getSearchError } from './search-errors';
 import type { ClassifiedSearchError } from './search-errors';
 import type {
@@ -171,46 +172,4 @@ export function createSearchController(
   searchView.render(currentState, selectedCountry);
 
   return searchController;
-}
-
-function createSearchCancellationSource(): SearchCancellationSource {
-  let isCancelled: boolean = false;
-  const cancellationCallbacks: Set<() => void> = new Set();
-
-  const signal: SearchCancellationSource['signal'] = {
-    get isCancelled(): boolean {
-      return isCancelled;
-    },
-
-    onCancel(callback: () => void): () => void {
-      if (isCancelled) {
-        callback();
-
-        return (): void => {};
-      }
-
-      cancellationCallbacks.add(callback);
-
-      return (): void => {
-        cancellationCallbacks.delete(callback);
-      };
-    },
-  };
-
-  return {
-    signal,
-    cancel(): void {
-      if (isCancelled) {
-        return;
-      }
-
-      isCancelled = true;
-
-      cancellationCallbacks.forEach((callback: () => void): void => {
-        callback();
-      });
-
-      cancellationCallbacks.clear();
-    },
-  };
 }
