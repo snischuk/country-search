@@ -6,3 +6,9 @@
   outline: 0.2rem solid var(--color-accent);
   outline-offset: 0.2rem;
 }
+
+@media (forced-colors: active) {
+  .ui-input:focus-visible {
+    outline-color: Highlight;
+  }
+}

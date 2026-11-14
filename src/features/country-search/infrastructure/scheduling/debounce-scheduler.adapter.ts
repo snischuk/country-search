@@ -1,10 +1,12 @@
 import type {
   ScheduledTask,
   SchedulerFactory,
-} from '../../application/search.port';
-
-import { debounce } from './debounce';
-import type { Debounced, TimerDriver } from './debounce';
+} from '@/features/country-search/application/search.port';
+import { debounce } from '@/features/country-search/infrastructure/scheduling/debounce';
+import type {
+  Debounced,
+  TimerDriver,
+} from '@/features/country-search/infrastructure/scheduling/debounce';
 
 export function createDebounceSchedulerFactory(
   timerDriver: TimerDriver<number>,

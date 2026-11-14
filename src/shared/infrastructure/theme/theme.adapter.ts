@@ -1,5 +1,5 @@
-import type { KeyValueStorage } from '../../application/storage/key-value-storage.port';
-import { localStorageService } from '../storage/local-storage.adapter';
+import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
+import { localStorageService } from '@/shared/infrastructure/storage/local-storage.adapter';
 
 const THEME_STORAGE_KEY: string = 'country-search.theme';
 const DARK_THEME: string = 'dark';

@@ -1,3 +1,5 @@
+import { createThemeToggle } from '@/app/components/theme-toggle/theme-toggle.component';
+import { createCountrySearchPage } from '@/app/pages/country-search.page';
 import {
   createBrowserTimerDriver,
   createCachedSearchPort,
@@ -23,9 +25,6 @@ import {
   getIsDarkThemePreferred,
   saveThemePreference,
 } from '@/shared/infrastructure/theme/theme.adapter';
-
-import { createThemeToggle } from './components/theme-toggle/theme-toggle.component';
-import { createCountrySearchPage } from './pages/country-search.page';
 
 const LIGHT_THEME_CLASS: string = 'light-theme';
 const THEME_COLOR_SELECTOR: string = 'meta[name="theme-color"]';

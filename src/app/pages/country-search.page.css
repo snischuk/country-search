@@ -15,7 +15,7 @@
 .country-search-page__eyebrow {
   margin: 0;
   color: var(--color-accent);
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 750;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -26,8 +26,9 @@
   max-width: 48rem;
   font-size: clamp(2.8rem, 7vw, 5.5rem);
   font-weight: 750;
-  letter-spacing: -0.055em;
-  line-height: 1.06;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  text-wrap: balance;
 }
 
 .country-search-page__description {
@@ -35,7 +36,8 @@
   margin: 1.25rem 0 0;
   color: var(--color-muted);
   font-size: clamp(1rem, 2vw, 1.2rem);
-  line-height: 1.65;
+  line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .country-search-page__intro::after {
@@ -71,4 +73,28 @@
   flex-wrap: wrap;
   gap: 1rem;
   margin-bottom: 2rem;
+}
+
+@media (max-width: 48rem) {
+  .country-search-page {
+    padding-block: 1rem 2rem;
+  }
+
+  .country-search-page__intro {
+    padding-block: 1rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .country-search-page__toolbar {
+    margin-bottom: 1.25rem;
+  }
+
+  .country-search-page__title {
+    font-size: clamp(2.25rem, 7vw, 3.5rem);
+  }
+
+  .country-search-page__description {
+    margin-top: 0.75rem;
+    line-height: 1.5;
+  }
 }

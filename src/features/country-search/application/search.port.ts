@@ -1,5 +1,5 @@
-import type { Country } from '../domain/country.type';
-import type { SearchState } from '../domain/search-state.type';
+import type { Country } from '@/features/country-search/domain/country.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
 
 export interface SearchPort {
   search(

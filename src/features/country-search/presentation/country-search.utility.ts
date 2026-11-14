@@ -1,6 +1,12 @@
-import type { Currency } from '../domain/country.type';
-import { SEARCH_STATUS } from '../domain/search-state.type';
-import type { SearchState } from '../domain/search-state.type';
+import type { Currency } from '@/features/country-search/domain/country.type';
+import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
+import { COUNTRY_ALPHA2_CODES } from '@/features/country-search/presentation/country-code.constant';
+
+const COUNTRY_NAMES: Intl.DisplayNames = new Intl.DisplayNames(['en'], {
+  type: 'region',
+  fallback: 'none',
+});
 
 export const UNAVAILABLE_VALUE: string = 'Not available';
 
@@ -33,10 +39,26 @@ export function getStatusMessage(state: SearchState): string {
     case SEARCH_STATUS.loading:
       return `Searching for ${state.query}…`;
     case SEARCH_STATUS.results:
-      return `${state.countries.length} countries found for ${state.query}.`;
+      return `${getCountryResultLabel(state.countries.length)} found for ${state.query}.`;
     case SEARCH_STATUS.empty:
-      return `No countries found for ${state.query}.`;
+      return `No countries found for ${state.query}. Check the spelling or try a shorter name.`;
     case SEARCH_STATUS.error:
       return '';
   }
+}
+
+export function getBorderCountryName(countryCode: string): string {
+  const normalizedCode: string = countryCode.toUpperCase();
+  const regionCode: string =
+    COUNTRY_ALPHA2_CODES.get(normalizedCode) ?? normalizedCode;
+
+  if (!/^[A-Z]{2}$/u.test(regionCode)) {
+    return countryCode;
+  }
+
+  return COUNTRY_NAMES.of(regionCode) ?? countryCode;
+}
+
+export function getCountryResultLabel(countryCount: number): string {
+  return `${countryCount} ${countryCount === 1 ? 'country' : 'countries'}`;
 }

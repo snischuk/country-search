@@ -4,6 +4,8 @@ html:has(.ui-modal:modal) {
 
 .ui-modal {
   margin: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   max-width: calc(100% - 2rem);
   max-height: calc(100dvh - 2rem);
 }

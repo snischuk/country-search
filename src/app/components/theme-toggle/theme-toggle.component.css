@@ -18,7 +18,7 @@
 .theme-toggle::before {
   position: absolute;
   inset-block: 0.25rem;
-  left: 0.25rem;
+  inset-inline-start: 0.25rem;
   width: calc(50% - 0.25rem);
   border-radius: 50%;
   background: var(--color-accent);
@@ -59,4 +59,25 @@
 
 .theme-toggle:hover {
   border-color: var(--color-accent);
+}
+
+.theme-toggle:dir(rtl)[aria-pressed='true']::before {
+  transform: translateX(-100%);
+}
+
+@media (forced-colors: active) {
+  .theme-toggle::before {
+    background: Highlight;
+    forced-color-adjust: none;
+  }
+
+  .theme-toggle__icon {
+    background: ButtonText;
+    forced-color-adjust: none;
+  }
+
+  .theme-toggle[aria-pressed='false'] .theme-toggle__icon--sun,
+  .theme-toggle[aria-pressed='true'] .theme-toggle__icon--moon {
+    background: HighlightText;
+  }
 }

@@ -1,8 +1,11 @@
+import type { Country } from '@/features/country-search/domain/country.type';
+import {
+  UNAVAILABLE_VALUE,
+  formatCurrency,
+  getBorderCountryName,
+} from '@/features/country-search/presentation/country-search.utility';
 import { createButton, createModal } from '@/shared/presentation/ui-kit';
 import type { Modal } from '@/shared/presentation/ui-kit';
-
-import type { Country } from '../../domain/country.type';
-import { UNAVAILABLE_VALUE, formatCurrency } from '../country-search.utility';
 
 import './country-details.component.css';
 
@@ -64,7 +67,9 @@ export function createCountryDetails(
         },
         {
           label: 'Borders',
-          text: country.borders.join(', ') || UNAVAILABLE_VALUE,
+          text:
+            country.borders.map(getBorderCountryName).join(', ') ||
+            UNAVAILABLE_VALUE,
         },
         {
           label: 'Languages',

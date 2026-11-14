@@ -25,6 +25,7 @@ export function createSearchForm(
   });
   const hint: HTMLParagraphElement = document.createElement('p');
 
+  container.className = 'country-search__controls';
   form.className = 'country-search__form';
   label.className = 'country-search__label';
   label.htmlFor = SEARCH_INPUT_ID;

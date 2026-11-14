@@ -1,7 +1,7 @@
 import type {
   HistoryPanelCallbacks,
   HistoryViewPort,
-} from '../application/history-view.port';
+} from '@/features/search-history/application/history-view.port';
 
 import './search-history.panel.css';
 

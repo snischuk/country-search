@@ -1,5 +1,5 @@
-import { SEARCH_ERROR_TYPES } from '../domain/search-state.type';
-import type { SearchErrorType } from '../domain/search-state.type';
+import { SEARCH_ERROR_TYPES } from '@/features/country-search/domain/search-state.type';
+import type { SearchErrorType } from '@/features/country-search/domain/search-state.type';
 
 const ERROR_NAMES = {
   abort: 'AbortError',
@@ -7,6 +7,7 @@ const ERROR_NAMES = {
 } as const;
 
 const SEARCH_ERROR_MESSAGES = {
+  http: 'The country service is temporarily unavailable. Please try again in a moment.',
   timeout: 'The search took too long. Please try again.',
   network: 'The country service could not be reached. Please try again.',
   invalidResponse:
@@ -38,7 +39,7 @@ export function getSearchError(error: unknown): ClassifiedSearchError | null {
   if (error instanceof HttpError) {
     return {
       errorType: SEARCH_ERROR_TYPES.http,
-      message: error.message,
+      message: SEARCH_ERROR_MESSAGES.http,
       statusCode: error.statusCode,
     };
   }

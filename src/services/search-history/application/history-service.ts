@@ -1,6 +1,8 @@
-import { addHistoryQuery, getNormalizedHistory } from '../domain/history';
-
-import type { HistoryStorage } from './history-storage.port';
+import type { HistoryStorage } from '@/services/search-history/application/history-storage.port';
+import {
+  addHistoryQuery,
+  getNormalizedHistory,
+} from '@/services/search-history/domain/history';
 
 export interface HistoryService {
   getRecentQueries(): readonly string[];

@@ -1,7 +1,6 @@
+import type { HistoryStorage } from '@/services/search-history/application/history-storage.port';
 import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
 import { localStorageService } from '@/shared/infrastructure/storage/local-storage.adapter';
-
-import type { HistoryStorage } from '../application/history-storage.port';
 
 const STORAGE_KEY: string = 'country-search.history.v1';
 const STORAGE_VERSION: number = 1;

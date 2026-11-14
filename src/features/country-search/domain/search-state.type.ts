@@ -1,4 +1,4 @@
-import type { Country } from './country.type';
+import type { Country } from '@/features/country-search/domain/country.type';
 
 export const SEARCH_STATUS = {
   idle: 'idle',

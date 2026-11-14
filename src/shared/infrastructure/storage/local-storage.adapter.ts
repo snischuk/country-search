@@ -1,4 +1,4 @@
-import type { KeyValueStorage } from '../../application/storage/key-value-storage.port';
+import type { KeyValueStorage } from '@/shared/application/storage/key-value-storage.port';
 
 export const localStorageService: KeyValueStorage = {
   getItem(key: string): string | null {

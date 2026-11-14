@@ -31,3 +31,15 @@
 .light-theme .ui-button--primary:hover {
   background: color-mix(in srgb, var(--color-accent), black 15%);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-button--primary:hover {
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ui-button:focus-visible {
+    outline-color: Highlight;
+  }
+}

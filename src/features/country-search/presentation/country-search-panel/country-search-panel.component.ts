@@ -1,14 +1,14 @@
-import type { SearchView } from '../../application/search.port';
-import type { Country } from '../../domain/country.type';
-import { SEARCH_STATUS } from '../../domain/search-state.type';
-import type { SearchState } from '../../domain/search-state.type';
-import { createCountryCard } from '../country-card/country-card.component';
-import { createCountryDetails } from '../country-details/country-details.component';
-import type { CountryDetails } from '../country-details/country-details.component';
-import { createSearchFeedback } from '../search-feedback/search-feedback.component';
-import type { SearchFeedback } from '../search-feedback/search-feedback.component';
-import { createSearchForm } from '../search-form/search-form.component';
-import type { SearchForm } from '../search-form/search-form.component';
+import type { SearchView } from '@/features/country-search/application/search.port';
+import type { Country } from '@/features/country-search/domain/country.type';
+import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
+import { createCountryCard } from '@/features/country-search/presentation/country-card/country-card.component';
+import { createCountryDetails } from '@/features/country-search/presentation/country-details/country-details.component';
+import type { CountryDetails } from '@/features/country-search/presentation/country-details/country-details.component';
+import { createSearchFeedback } from '@/features/country-search/presentation/search-feedback/search-feedback.component';
+import type { SearchFeedback } from '@/features/country-search/presentation/search-feedback/search-feedback.component';
+import { createSearchForm } from '@/features/country-search/presentation/search-form/search-form.component';
+import type { SearchForm } from '@/features/country-search/presentation/search-form/search-form.component';
 
 import './country-search-panel.component.css';
 
@@ -74,6 +74,25 @@ export function createCountrySearchPanel(
       search.field.value = query;
     },
     render(state: SearchState, selectedCountry: Country | null): void {
+      if (window.scrollY > 0) {
+        const visiblePanelHeight: number = Math.max(
+          0,
+          window.innerHeight - panel.getBoundingClientRect().top,
+        );
+
+        panel.style.minBlockSize = `${visiblePanelHeight}px`;
+      } else {
+        panel.style.minBlockSize = '';
+      }
+
+      resultList.setAttribute(
+        'aria-busy',
+        String(
+          state.status === SEARCH_STATUS.loading ||
+            state.status === SEARCH_STATUS.waiting,
+        ),
+      );
+
       feedback.render(state);
       const countries: readonly Country[] | null =
         state.status === SEARCH_STATUS.results ? state.countries : null;

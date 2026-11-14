@@ -8,7 +8,7 @@
   border-radius: 1rem;
   background: var(--color-card);
   color: inherit;
-  text-align: left;
+  text-align: start;
   box-shadow: 0 0.5rem 1.5rem rgb(35 52 58 / 4%);
   transition:
     border-color 160ms ease,
@@ -38,7 +38,7 @@
   border: 1px solid var(--color-border);
   border-radius: 0.35rem;
   background: var(--color-paper);
-  object-fit: cover;
+  object-fit: contain;
   font-size: 1.35rem;
 }
 
@@ -47,7 +47,7 @@
   font-family: inherit;
   font-size: 1.35rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -60,21 +60,23 @@
 }
 
 .country-card__fact {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: 1rem;
-  justify-content: space-between;
-  font-size: 0.85rem;
+  align-items: start;
+  font-size: 0.875rem;
 }
 
 .country-card__label {
+  overflow-wrap: anywhere;
   color: var(--color-muted);
 }
 
 .country-card__value {
   min-width: 0;
-  max-width: 65%;
+  max-width: 100%;
   font-weight: 650;
-  text-align: right;
+  text-align: end;
   overflow-wrap: anywhere;
 }
 
@@ -85,4 +87,14 @@
 
 .country-card:active {
   transform: translateY(0);
+}
+
+.country-card__value {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .country-card:hover {
+    transform: none;
+  }
 }

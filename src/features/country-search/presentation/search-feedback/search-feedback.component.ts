@@ -1,8 +1,10 @@
+import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
+import {
+  getCountryResultLabel,
+  getStatusMessage,
+} from '@/features/country-search/presentation/country-search.utility';
 import { createButton } from '@/shared/presentation/ui-kit';
-
-import { SEARCH_STATUS } from '../../domain/search-state.type';
-import type { SearchState } from '../../domain/search-state.type';
-import { getStatusMessage } from '../country-search.utility';
 
 import './search-feedback.component.css';
 
@@ -28,6 +30,7 @@ export function createSearchFeedback(
   status.className = 'country-search__status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
   errorMessage.id = SEARCH_ERROR_ID;
   errorMessage.className = 'country-search__error';
   errorMessage.setAttribute('role', 'alert');
@@ -48,22 +51,30 @@ export function createSearchFeedback(
         state.status !== SEARCH_STATUS.error &&
         document.activeElement === retryButton;
 
-      status.textContent = getStatusMessage(state);
+      const statusMessage: string = getStatusMessage(state);
 
-      if (state.status === SEARCH_STATUS.results) {
-        const query: HTMLElement = document.createElement('strong');
+      if (status.textContent !== statusMessage) {
+        status.textContent = statusMessage;
 
-        query.textContent = state.query;
-        status.replaceChildren(
-          `${state.countries.length} countries found for `,
-          query,
-          '.',
-        );
+        if (state.status === SEARCH_STATUS.results) {
+          const query: HTMLElement = document.createElement('strong');
+
+          query.textContent = state.query;
+          status.replaceChildren(
+            `${getCountryResultLabel(state.countries.length)} found for `,
+            query,
+            '.',
+          );
+        }
       }
 
       status.dataset['state'] = state.status;
-      errorMessage.textContent =
+      const errorText: string =
         state.status === SEARCH_STATUS.error ? state.message : '';
+
+      if (errorMessage.textContent !== errorText) {
+        errorMessage.textContent = errorText;
+      }
 
       retryButton.hidden = state.status !== SEARCH_STATUS.error;
       if (shouldRestoreFocus) {

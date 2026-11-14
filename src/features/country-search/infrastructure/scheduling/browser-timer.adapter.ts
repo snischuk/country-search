@@ -1,4 +1,4 @@
-import type { TimerDriver } from './debounce';
+import type { TimerDriver } from '@/features/country-search/infrastructure/scheduling/debounce';
 
 export function createBrowserTimerDriver(): TimerDriver<number> {
   return {

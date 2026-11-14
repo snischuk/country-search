@@ -1,4 +1,4 @@
-import type { SearchCancellationSource } from './search.port';
+import type { SearchCancellationSource } from '@/features/country-search/application/search.port';
 
 export function createSearchCancellationSource(): SearchCancellationSource {
   let isCancelled: boolean = false;

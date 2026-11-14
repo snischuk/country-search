@@ -1,7 +1,9 @@
+import type { Country } from '@/features/country-search/domain/country.type';
+import {
+  UNAVAILABLE_VALUE,
+  formatPopulation,
+} from '@/features/country-search/presentation/country-search.utility';
 import { createButton } from '@/shared/presentation/ui-kit';
-
-import type { Country } from '../../domain/country.type';
-import { UNAVAILABLE_VALUE, formatPopulation } from '../country-search.utility';
 
 import './country-card.component.css';
 
@@ -25,6 +27,7 @@ export function createCountryCard(
   cardButton.classList.add('country-card');
   cardButton.type = 'button';
   cardButton.setAttribute('aria-haspopup', 'dialog');
+  cardButton.setAttribute('aria-label', `View details for ${country.name}`);
   cardHeader.className = 'country-card__header';
   cardFlag.className = 'country-card__flag';
 

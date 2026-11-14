@@ -1,10 +1,10 @@
-import { createSearchCancellationSource } from '../application/search-cancellation';
+import { createSearchCancellationSource } from '@/features/country-search/application/search-cancellation';
 import type {
   SearchCancellationSignal,
   SearchCancellationSource,
   SearchPort,
-} from '../application/search.port';
-import type { Country } from '../domain/country.type';
+} from '@/features/country-search/application/search.port';
+import type { Country } from '@/features/country-search/domain/country.type';
 
 const ABORT_ERROR_NAME: string = 'AbortError';
 const REQUEST_CANCELLED_MESSAGE: string = 'The request was cancelled.';

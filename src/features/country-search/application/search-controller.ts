@@ -1,10 +1,6 @@
-import type { Country } from '../domain/country.type';
-import { SEARCH_STATUS } from '../domain/search-state.type';
-import type { SearchState } from '../domain/search-state.type';
-
-import { createSearchCancellationSource } from './search-cancellation';
-import { getSearchError } from './search-errors';
-import type { ClassifiedSearchError } from './search-errors';
+import { createSearchCancellationSource } from '@/features/country-search/application/search-cancellation';
+import { getSearchError } from '@/features/country-search/application/search-errors';
+import type { ClassifiedSearchError } from '@/features/country-search/application/search-errors';
 import type {
   HistoryRecorder,
   ScheduledTask,
@@ -13,7 +9,10 @@ import type {
   SearchController,
   SearchPort,
   SearchView,
-} from './search.port';
+} from '@/features/country-search/application/search.port';
+import type { Country } from '@/features/country-search/domain/country.type';
+import { SEARCH_STATUS } from '@/features/country-search/domain/search-state.type';
+import type { SearchState } from '@/features/country-search/domain/search-state.type';
 
 const SEARCH_DEBOUNCE_DELAY_MS: number = 300;
 

@@ -1,9 +1,11 @@
-import { HttpError, ValidationError } from '../../application/search-errors';
-import type { SearchCancellationSignal } from '../../application/search.port';
-import type { Country } from '../../domain/country.type';
-
-import { createAbortSignalWithTimeout } from './abort-signal.adapter';
-import { mapCountryResponse } from './map-country-response';
+import {
+  HttpError,
+  ValidationError,
+} from '@/features/country-search/application/search-errors';
+import type { SearchCancellationSignal } from '@/features/country-search/application/search.port';
+import type { Country } from '@/features/country-search/domain/country.type';
+import { createAbortSignalWithTimeout } from '@/features/country-search/infrastructure/http/abort-signal.adapter';
+import { mapCountryResponse } from '@/features/country-search/infrastructure/http/map-country-response';
 
 const COUNTRIES_API_URL: string = 'https://countries.dev/name';
 const HTTP_GET_METHOD: string = 'GET';

@@ -56,6 +56,18 @@ describe('getSearchError', (): void => {
     checkErrorDetails(serviceError, SEARCH_ERROR_TYPES.http, 503);
   });
 
+  it('explains service failures without exposing HTTP terminology', (): void => {
+    const classifiedError: ClassifiedSearchError | null = getSearchError(
+      new HttpError(503),
+    );
+
+    expect(classifiedError?.message).toBe(
+      'The country service is temporarily unavailable. Please try again in a moment.',
+    );
+
+    expect(classifiedError?.statusCode).toBe(503);
+  });
+
   it('classifies invalid response data separately from network failures', (): void => {
     checkErrorDetails(
       new ValidationError(),
