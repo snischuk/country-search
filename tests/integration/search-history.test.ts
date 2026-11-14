@@ -3,6 +3,7 @@ import type { Mock } from 'vitest';
 
 import {
   SEARCH_STATUS,
+  createCachedSearchPort,
   createSearchController,
 } from '@/features/country-search';
 import type {
@@ -17,25 +18,33 @@ interface ScheduledSearch {
   isCancelled: boolean;
 }
 
-function createSearchHistorySetup(): {
+function createSearchHistorySetup(useCache: boolean = false): {
   readonly controller: ReturnType<typeof createSearchController>;
   readonly search: Mock<SearchPort['search']>;
   readonly recordQuery: ReturnType<typeof vi.fn>;
   readonly scheduledSearches: ScheduledSearch[];
   readonly states: SearchState[];
+  readonly searchField: { value: string };
 } {
   const states: SearchState[] = [];
+  const searchField: { value: string } = { value: '' };
   const scheduledSearches: ScheduledSearch[] = [];
   const search: Mock<SearchPort['search']> = vi.fn<SearchPort['search']>();
 
   search.mockResolvedValue([]);
   const recordQuery: ReturnType<typeof vi.fn<(query: string) => void>> =
     vi.fn<(query: string) => void>();
-  const searchPort: SearchPort = { search };
+  const transport: SearchPort = { search };
+  const searchPort: SearchPort = useCache
+    ? createCachedSearchPort(transport)
+    : transport;
   const historyRecorder: HistoryRecorder = { recordQuery };
   const searchView: SearchView = {
     render(state: SearchState): void {
       states.push(state);
+    },
+    setQuery(query: string): void {
+      searchField.value = query;
     },
   };
   const controller: ReturnType<typeof createSearchController> =
@@ -64,7 +73,14 @@ function createSearchHistorySetup(): {
       historyRecorder,
     );
 
-  return { controller, search, recordQuery, scheduledSearches, states };
+  return {
+    controller,
+    search,
+    recordQuery,
+    scheduledSearches,
+    states,
+    searchField,
+  };
 }
 
 describe('search history integration', (): void => {
@@ -113,8 +129,40 @@ describe('search history integration', (): void => {
 
     setup.controller.searchFromHistory('Japan');
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(setup.recordQuery).toHaveBeenCalledExactlyOnceWith('Japan');
+
+    setup.controller.destroy();
+  });
+
+  it('records a search selected from history even when cache avoids transport', async (): Promise<void> => {
+    const setup: ReturnType<typeof createSearchHistorySetup> =
+      createSearchHistorySetup(true);
+
+    setup.controller.searchFromHistory('Japan');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    setup.controller.searchFromHistory(' Japan ');
+    await Promise.resolve();
+
+    expect(setup.recordQuery.mock.calls).toEqual([['Japan'], ['Japan']]);
+    expect(setup.search).toHaveBeenCalledOnce();
+
+    setup.controller.destroy();
+  });
+
+  it('updates the search field and launches a selected history query immediately', (): void => {
+    const setup: ReturnType<typeof createSearchHistorySetup> =
+      createSearchHistorySetup();
+
+    setup.controller.searchFromHistory('  Japan  ');
+
+    expect(setup.searchField.value).toBe('Japan');
+    expect(setup.search).toHaveBeenCalledOnce();
+    expect(setup.scheduledSearches).toHaveLength(0);
 
     setup.controller.destroy();
   });
