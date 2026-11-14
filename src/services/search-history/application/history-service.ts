@@ -37,7 +37,7 @@ export function createHistoryService(storage: HistoryStorage): HistoryService {
     try {
       storage.save(recentQueries);
     } catch {
-      // Keep the updated history in memory when persistence is unavailable.
+      recentQueries = updatedQueries;
     }
 
     subscribers.forEach(
