@@ -13,6 +13,8 @@
     "format:check": "git ls-files -z | xargs -0 prettier --check --ignore-unknown",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
+    "check:boundaries": "eslint src --max-warnings 0 && vitest run tests/architecture/boundaries.test.ts",
+    "validate": "npm run check:boundaries && npm run lint && npm test && npm run build && npm run format:check",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky"

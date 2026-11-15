@@ -23,6 +23,21 @@ const sharedPresentationPath: string = `src/shared/presentation/${moduleName}`;
 const sharedDomainPath: string = `src/shared/domain/${moduleName}`;
 const appPath: string = `src/app/${moduleName}.ts`;
 const cases: ArchitectureCase[] = [
+  {
+    title: 'rejects a runtime import cycle within a feature',
+    path: `${featurePath}/domain/cycle-a.ts`,
+    source: `export { value } from '@/features/${moduleName}/domain/cycle-b';`,
+    isDenied: true,
+    ruleId: 'import-x/no-cycle',
+  },
+  {
+    title: 'allows an acyclic dependency within a feature',
+    path: `${featurePath}/domain/acyclic.ts`,
+    source: "export { value } from './value';",
+    isDenied: false,
+    ruleId: 'import-x/no-cycle',
+  },
+
   ...['domain', 'application', 'infrastructure', 'presentation'].map(
     (layer: string): ArchitectureCase => ({
       title: `rejects ${layer} importing another feature public API`,
@@ -151,39 +166,23 @@ function writeFixture(path: string, source: string): void {
 }
 
 beforeAll(async (): Promise<void> => {
-  writeFixture(
-    `${featurePath}/domain/value.ts`,
-    'export const value: number = 1;',
-  );
+  const dependencies: Record<string, string> = {
+    [`${featurePath}/domain/cycle-b.ts`]: "export { value } from './cycle-a';",
+    [`${featurePath}/domain/value.ts`]: 'export const value: number = 1;',
+    [`${peerFeaturePath}/domain/value.ts`]: 'export const value: number = 1;',
+    [`${peerFeaturePath}/index.ts`]: "export { value } from './domain/value';",
+    [`${sharedPresentationPath}/value.ts`]: 'export const value: number = 1;',
+    [`${servicePath}/domain/value.ts`]: 'export const value: number = 1;',
+    [`${servicePath}/infrastructure/storage.ts`]:
+      'export const value: number = 1;',
+    [`${servicePath}/index.ts`]:
+      "export { value } from './infrastructure/storage';",
+  };
 
-  writeFixture(
-    `${peerFeaturePath}/domain/value.ts`,
-    'export const value: number = 1;',
-  );
-
-  writeFixture(
-    `${peerFeaturePath}/index.ts`,
-    "export { value } from './domain/value';",
-  );
-
-  writeFixture(
-    `${sharedPresentationPath}/value.ts`,
-    'export const value: number = 1;',
-  );
-
-  writeFixture(
-    `${servicePath}/domain/value.ts`,
-    'export const value: number = 1;',
-  );
-
-  writeFixture(
-    `${servicePath}/infrastructure/storage.ts`,
-    'export const value: number = 1;',
-  );
-
-  writeFixture(
-    `${servicePath}/index.ts`,
-    "export { value } from './infrastructure/storage';",
+  Object.entries(dependencies).forEach(
+    ([path, source]: [string, string]): void => {
+      writeFixture(path, source);
+    },
   );
 
   cases.forEach((testCase: ArchitectureCase): void => {
@@ -203,37 +202,39 @@ beforeAll(async (): Promise<void> => {
 }, 15000);
 
 afterAll((): void => {
-  rmSync(resolve(root, featurePath), { recursive: true, force: true });
-  rmSync(resolve(root, peerFeaturePath), { recursive: true, force: true });
-  rmSync(resolve(root, `src/app/${moduleName}-feature.ts`), { force: true });
-
-  rmSync(resolve(root, servicePath), { recursive: true, force: true });
-  rmSync(resolve(root, sharedPath), { recursive: true, force: true });
-  rmSync(resolve(root, sharedPresentationPath), {
-    recursive: true,
-    force: true,
+  [
+    featurePath,
+    peerFeaturePath,
+    servicePath,
+    sharedPath,
+    sharedPresentationPath,
+    sharedDomainPath,
+    appPath,
+    `src/app/${moduleName}-feature.ts`,
+    `src/app/${moduleName}-private.ts`,
+  ].forEach((path: string): void => {
+    rmSync(resolve(root, path), { recursive: true, force: true });
   });
-
-  rmSync(resolve(root, sharedDomainPath), { recursive: true, force: true });
-  rmSync(resolve(root, appPath), { force: true });
-  rmSync(resolve(root, `src/app/${moduleName}-private.ts`), { force: true });
 });
 
 describe('architecture boundaries', (): void => {
-  cases.forEach((testCase: ArchitectureCase): void => {
-    it(testCase.title, (): void => {
-      const result: ESLint.LintResult | undefined = results.get(
-        resolve(root, testCase.path),
-      );
+  it.each(cases)('$title', (testCase: ArchitectureCase): void => {
+    const result: ESLint.LintResult | undefined = results.get(
+      resolve(root, testCase.path),
+    );
 
-      expect(result).toBeDefined();
-      expect(result?.fatalErrorCount).toBe(0);
-      expect(
-        result?.messages.some(
-          (message: Linter.LintMessage): boolean =>
-            message.ruleId === (testCase.ruleId ?? 'boundaries/dependencies'),
-        ),
-      ).toBe(testCase.isDenied);
-    });
+    expect(result).toBeDefined();
+    expect(result?.fatalErrorCount).toBe(0);
+    const matchingMessages: Linter.LintMessage[] =
+      result?.messages.filter(
+        (message: Linter.LintMessage): boolean =>
+          message.ruleId === (testCase.ruleId ?? 'boundaries/dependencies'),
+      ) ?? [];
+
+    if (testCase.isDenied) {
+      expect(matchingMessages).not.toHaveLength(0);
+    } else {
+      expect(matchingMessages).toHaveLength(0);
+    }
   });
 });

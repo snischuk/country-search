@@ -21,8 +21,15 @@ export default defineConfig([
   {
     files: ['**/*.{js,ts}'],
     plugins: { 'import-x': importX, 'function-name': functionName },
+    settings: {
+      'import-x/parsers': { '@typescript-eslint/parser': ['.ts'] },
+      'import-x/resolver': {
+        typescript: { project: './tsconfig.json' },
+      },
+    },
     rules: {
       'import-x/no-duplicates': 'error',
+      'import-x/no-cycle': ['error', { ignoreExternal: true }],
       'function-name/starts-with-verb': 'error',
     },
   },
