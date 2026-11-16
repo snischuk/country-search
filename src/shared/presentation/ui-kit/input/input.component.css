@@ -1,0 +1,14 @@
+.ui-input {
+  font: inherit;
+  min-width: 0;
+}
+.ui-input:focus-visible {
+  outline: 0.2rem solid var(--color-accent);
+  outline-offset: 0.2rem;
+}
+
+@media (forced-colors: active) {
+  .ui-input:focus-visible {
+    outline-color: Highlight;
+  }
+}

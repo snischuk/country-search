@@ -1,0 +1,59 @@
+.country-search__controls {
+  container-type: inline-size;
+  width: 100%;
+}
+
+.country-search__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: end;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1.15rem;
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+}
+
+.country-search__label {
+  grid-column: 1 / -1;
+  margin-inline: 0.35rem;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.country-search__input {
+  width: 100%;
+  font-size: 1rem;
+  min-height: 3.25rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 55%, var(--color-paper));
+  border-radius: 0.7rem;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.country-search__input::placeholder {
+  color: var(--color-muted);
+}
+
+.country-search__hint {
+  margin-block: 0.75rem 0;
+  margin-inline: 0.35rem 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+@container (max-width: 34rem) {
+  .country-search__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .country-search__label {
+    grid-column: auto;
+  }
+}
+
+.country-search__form:focus-within {
+  border-color: var(--color-accent);
+}

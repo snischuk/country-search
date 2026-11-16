@@ -1,0 +1,45 @@
+.ui-button {
+  font: inherit;
+  cursor: pointer;
+}
+.ui-button:focus-visible {
+  outline: 0.2rem solid var(--color-accent);
+  outline-offset: 0.2rem;
+}
+.ui-button--primary {
+  min-height: 3.25rem;
+  padding: 0.7rem 1.2rem;
+  border: 0;
+  border-radius: 0.7rem;
+  background: var(--color-accent);
+  color: var(--color-paper);
+  font-weight: 700;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.ui-button--primary:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--color-accent), white 25%);
+}
+
+.light-theme .ui-button--primary {
+  color: white;
+}
+
+.light-theme .ui-button--primary:hover {
+  background: color-mix(in srgb, var(--color-accent), black 15%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-button--primary:hover {
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ui-button:focus-visible {
+    outline-color: Highlight;
+  }
+}
